@@ -8,11 +8,27 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
     <div id="root"></div>
     
     <script>
+        // Инициализация Firebase (публичная демо-база, замени на свою!)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDVx9qE_PKvQp4VqZOZghT8TlqL5B9VqBw",
+            authDomain: "shopping-list-demo-123.firebaseapp.com",
+            databaseURL: "https://shopping-list-demo-123-default-rtdb.firebaseio.com",
+            projectId: "shopping-list-demo-123",
+            storageBucket: "shopping-list-demo-123.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef123456"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
         const { useState, useEffect, createElement: h } = React;
 
         function Icon({ name, className = "" }) {
@@ -21,7 +37,8 @@
                 trash: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
                 check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
                 cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
-                users: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>'
+                users: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>',
+                refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>'
             };
             return h('svg', {
                 className: className,
@@ -37,8 +54,7 @@
             const [newItem, setNewItem] = useState('');
             const [loading, setLoading] = useState(true);
             const [userName, setUserName] = useState('Гость');
-            const [error, setError] = useState('');
-            const [useCloudStorage, setUseCloudStorage] = useState(false);
+            const [onlineUsers, setOnlineUsers] = useState(0);
 
             useEffect(() => {
                 initApp();
@@ -54,122 +70,84 @@
                     if (user) {
                         setUserName(user.first_name || 'Пользователь');
                     }
-
-                    // Проверяем доступность CloudStorage
-                    if (window.Telegram.WebApp.CloudStorage) {
-                        setUseCloudStorage(true);
-                        console.log('Используем CloudStorage');
-                    } else {
-                        console.log('CloudStorage недоступен, используем память');
-                    }
                 }
 
-                await loadItems();
-                setLoading(false);
-            };
-
-            const loadItems = async () => {
-                try {
-                    if (useCloudStorage && window.Telegram?.WebApp?.CloudStorage) {
-                        // Используем Telegram CloudStorage
-                        window.Telegram.WebApp.CloudStorage.getItem('shopping-list', (err, value) => {
-                            if (!err && value) {
-                                const data = JSON.parse(value);
-                                setItems(data.items || []);
-                            }
+                // Подписываемся на изменения списка в реальном времени
+                const itemsRef = database.ref('shopping-items');
+                itemsRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        const itemsArray = Object.keys(data).map(key => ({
+                            id: key,
+                            ...data[key]
+                        }));
+                        // Сортируем: непокупленные сначала, потом по времени
+                        itemsArray.sort((a, b) => {
+                            if (a.checked !== b.checked) return a.checked ? 1 : -1;
+                            return new Date(b.timestamp) - new Date(a.timestamp);
                         });
-                    } else if (window.storage) {
-                        // Используем новое API
-                        const result = await window.storage.get('shopping-list', true);
-                        if (result && result.value) {
-                            const data = JSON.parse(result.value);
-                            setItems(data.items || []);
-                        }
-                    }
-                } catch (error) {
-                    console.log('Не удалось загрузить список:', error);
-                    setItems([]);
-                }
-            };
-
-            const saveItems = async (newItems) => {
-                try {
-                    setError('');
-                    console.log('Сохраняем:', newItems.length, 'товаров');
-                    
-                    if (useCloudStorage && window.Telegram?.WebApp?.CloudStorage) {
-                        // Используем Telegram CloudStorage
-                        window.Telegram.WebApp.CloudStorage.setItem(
-                            'shopping-list', 
-                            JSON.stringify({ items: newItems }),
-                            (err, saved) => {
-                                if (!err) {
-                                    setItems(newItems);
-                                    console.log('Сохранено через CloudStorage');
-                                } else {
-                                    setError('Ошибка сохранения');
-                                    console.error('Ошибка CloudStorage:', err);
-                                }
-                            }
-                        );
-                    } else if (window.storage) {
-                        // Используем новое API
-                        await window.storage.set('shopping-list', JSON.stringify({ items: newItems }), true);
-                        setItems(newItems);
-                        console.log('Сохранено через window.storage');
+                        setItems(itemsArray);
                     } else {
-                        // Запасной вариант - просто в памяти
-                        setItems(newItems);
-                        console.log('Сохранено в памяти (без синхронизации)');
+                        setItems([]);
                     }
-                } catch (error) {
-                    setError('Ошибка: ' + error.message);
-                    console.error('Ошибка сохранения:', error);
-                    // Всё равно обновляем локально
-                    setItems(newItems);
-                }
+                    setLoading(false);
+                });
+
+                // Отслеживаем количество онлайн пользователей
+                const connectionsRef = database.ref('.info/connected');
+                const userStatusRef = database.ref(`online/${Date.now()}`);
+                
+                connectionsRef.on('value', (snap) => {
+                    if (snap.val() === true) {
+                        userStatusRef.set(true);
+                        userStatusRef.onDisconnect().remove();
+                    }
+                });
+
+                // Считаем онлайн пользователей
+                database.ref('online').on('value', (snapshot) => {
+                    const count = snapshot.numChildren();
+                    setOnlineUsers(count);
+                });
             };
 
             const addItem = async () => {
-                console.log('Добавление товара:', newItem);
-                
-                if (!newItem.trim()) {
-                    console.log('Пустое поле');
-                    return;
-                }
+                if (!newItem.trim()) return;
 
-                const item = {
-                    id: Date.now(),
+                const itemsRef = database.ref('shopping-items');
+                const newItemRef = itemsRef.push();
+                
+                await newItemRef.set({
                     text: newItem.trim(),
                     checked: false,
                     addedBy: userName,
                     timestamp: new Date().toISOString()
-                };
+                });
 
-                console.log('Новый товар:', item);
-
-                const updatedItems = [...items, item];
-                console.log('Обновлённый список:', updatedItems);
-                
-                await saveItems(updatedItems);
                 setNewItem('');
             };
 
             const toggleItem = async (id) => {
-                const updatedItems = items.map(item =>
-                    item.id === id ? { ...item, checked: !item.checked } : item
-                );
-                await saveItems(updatedItems);
+                const item = items.find(i => i.id === id);
+                if (item) {
+                    await database.ref(`shopping-items/${id}`).update({
+                        checked: !item.checked
+                    });
+                }
             };
 
             const deleteItem = async (id) => {
-                const updatedItems = items.filter(item => item.id !== id);
-                await saveItems(updatedItems);
+                await database.ref(`shopping-items/${id}`).remove();
             };
 
             const clearCompleted = async () => {
-                const updatedItems = items.filter(item => !item.checked);
-                await saveItems(updatedItems);
+                const updates = {};
+                items.forEach(item => {
+                    if (item.checked) {
+                        updates[`shopping-items/${item.id}`] = null;
+                    }
+                });
+                await database.ref().update(updates);
             };
 
             const handleKeyPress = (e) => {
@@ -183,7 +161,10 @@
 
             if (loading) {
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center' },
-                    h('div', { className: 'text-lg text-gray-600' }, 'Загрузка...')
+                    h('div', { className: 'flex flex-col items-center gap-3' },
+                        h(Icon, { name: 'refresh', className: 'w-8 h-8 text-indigo-600 animate-spin' }),
+                        h('div', { className: 'text-lg text-gray-600' }, 'Загрузка...')
+                    )
                 );
             }
 
@@ -196,9 +177,9 @@
                                 h(Icon, { name: 'cart', className: 'w-6 h-6 text-indigo-600' }),
                                 h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
                             ),
-                            h('div', { className: 'flex items-center gap-1 text-xs text-gray-500' },
-                                h(Icon, { name: 'users', className: 'w-4 h-4' }),
-                                h('span', null, useCloudStorage ? 'Cloud' : 'Память')
+                            h('div', { className: 'flex items-center gap-1 text-xs' },
+                                h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
+                                h('span', { className: 'text-gray-500' }, `${onlineUsers} онлайн`)
                             )
                         ),
                         h('div', { className: 'flex gap-3 text-sm' },
@@ -210,8 +191,7 @@
                                 'Куплено: ',
                                 h('span', { className: 'font-semibold text-green-600' }, checkedCount)
                             )
-                        ),
-                        error && h('div', { className: 'mt-2 text-xs text-red-500' }, error)
+                        )
                     ),
                     // Добавление
                     h('div', { className: 'bg-white rounded-2xl shadow-lg p-3 mb-4' },
@@ -226,7 +206,8 @@
                             }),
                             h('button', {
                                 onClick: addItem,
-                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0'
+                                disabled: !newItem.trim(),
+                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
                             },
                                 h(Icon, { name: 'plus', className: 'w-6 h-6' })
                             )
@@ -258,7 +239,7 @@
                                             h('p', {
                                                 className: `text-base ${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}`
                                             }, item.text),
-                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, `Добавил: ${item.addedBy}`)
+                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, `${item.addedBy}`)
                                         ),
                                         h('button', {
                                             onClick: () => deleteItem(item.id),
@@ -277,7 +258,7 @@
                             )
                     ),
                     h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
-                        h('p', null, items.length > 0 ? `Всего товаров: ${items.length}` : 'Синхронизация между участниками')
+                        h('p', null, '✨ Синхронизация в реальном времени')
                     )
                 )
             );
