@@ -8,234 +8,224 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
     <div id="root"></div>
     
-    <script type="text/babel" data-type="module">
-        const { useState, useEffect } = React;
-        const { Plus, Trash2, Check, ShoppingCart, Users } = lucide;
+    <script>
+        const { useState, useEffect, createElement: h } = React;
+
+        function Icon({ name, className = "" }) {
+            const icons = {
+                plus: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>',
+                trash: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
+                check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
+                cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
+                users: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>'
+            };
+            return h('svg', {
+                className: className,
+                fill: 'none',
+                stroke: 'currentColor',
+                viewBox: '0 0 24 24',
+                dangerouslySetInnerHTML: { __html: icons[name] || '' }
+            });
+        }
 
         function ShoppingList() {
-          const [items, setItems] = useState([]);
-          const [newItem, setNewItem] = useState('');
-          const [loading, setLoading] = useState(true);
-          const [userName, setUserName] = useState('Гость');
+            const [items, setItems] = useState([]);
+            const [newItem, setNewItem] = useState('');
+            const [loading, setLoading] = useState(true);
+            const [userName, setUserName] = useState('Гость');
 
-          useEffect(() => {
-            initApp();
-          }, []);
+            useEffect(() => {
+                initApp();
+            }, []);
 
-          const initApp = async () => {
-            if (window.Telegram?.WebApp) {
-              const tg = window.Telegram.WebApp;
-              tg.expand();
-              tg.ready();
-              
-              const user = tg.initDataUnsafe?.user;
-              if (user) {
-                setUserName(user.first_name || 'Пользователь');
-              }
-            }
+            const initApp = async () => {
+                if (window.Telegram?.WebApp) {
+                    const tg = window.Telegram.WebApp;
+                    tg.expand();
+                    tg.ready();
+                    
+                    const user = tg.initDataUnsafe?.user;
+                    if (user) {
+                        setUserName(user.first_name || 'Пользователь');
+                    }
+                }
 
-            await loadItems();
-            setLoading(false);
-          };
-
-          const loadItems = async () => {
-            try {
-              const result = await window.storage.get('shopping-list', true);
-              if (result && result.value) {
-                const data = JSON.parse(result.value);
-                setItems(data.items || []);
-              }
-            } catch (error) {
-              console.log('Список пока пуст');
-              setItems([]);
-            }
-          };
-
-          const saveItems = async (newItems) => {
-            try {
-              await window.storage.set('shopping-list', JSON.stringify({ items: newItems }), true);
-              setItems(newItems);
-            } catch (error) {
-              console.error('Ошибка сохранения:', error);
-            }
-          };
-
-          const addItem = async () => {
-            if (!newItem.trim()) return;
-
-            const item = {
-              id: Date.now(),
-              text: newItem.trim(),
-              checked: false,
-              addedBy: userName,
-              timestamp: new Date().toISOString()
+                await loadItems();
+                setLoading(false);
             };
 
-            const updatedItems = [...items, item];
-            await saveItems(updatedItems);
-            setNewItem('');
-          };
+            const loadItems = async () => {
+                try {
+                    const result = await window.storage.get('shopping-list', true);
+                    if (result && result.value) {
+                        const data = JSON.parse(result.value);
+                        setItems(data.items || []);
+                    }
+                } catch (error) {
+                    console.log('Список пока пуст');
+                    setItems([]);
+                }
+            };
 
-          const toggleItem = async (id) => {
-            const updatedItems = items.map(item =>
-              item.id === id ? { ...item, checked: !item.checked } : item
-            );
-            await saveItems(updatedItems);
-          };
+            const saveItems = async (newItems) => {
+                try {
+                    await window.storage.set('shopping-list', JSON.stringify({ items: newItems }), true);
+                    setItems(newItems);
+                } catch (error) {
+                    console.error('Ошибка сохранения:', error);
+                }
+            };
 
-          const deleteItem = async (id) => {
-            const updatedItems = items.filter(item => item.id !== id);
-            await saveItems(updatedItems);
-          };
+            const addItem = async () => {
+                if (!newItem.trim()) return;
 
-          const clearCompleted = async () => {
-            const updatedItems = items.filter(item => !item.checked);
-            await saveItems(updatedItems);
-          };
+                const item = {
+                    id: Date.now(),
+                    text: newItem.trim(),
+                    checked: false,
+                    addedBy: userName,
+                    timestamp: new Date().toISOString()
+                };
 
-          const handleKeyPress = (e) => {
-            if (e.key === 'Enter') {
-              addItem();
+                const updatedItems = [...items, item];
+                await saveItems(updatedItems);
+                setNewItem('');
+            };
+
+            const toggleItem = async (id) => {
+                const updatedItems = items.map(item =>
+                    item.id === id ? { ...item, checked: !item.checked } : item
+                );
+                await saveItems(updatedItems);
+            };
+
+            const deleteItem = async (id) => {
+                const updatedItems = items.filter(item => item.id !== id);
+                await saveItems(updatedItems);
+            };
+
+            const clearCompleted = async () => {
+                const updatedItems = items.filter(item => !item.checked);
+                await saveItems(updatedItems);
+            };
+
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    addItem();
+                }
+            };
+
+            const uncheckedCount = items.filter(item => !item.checked).length;
+            const checkedCount = items.filter(item => item.checked).length;
+
+            if (loading) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center' },
+                    h('div', { className: 'text-lg text-gray-600' }, 'Загрузка...')
+                );
             }
-          };
 
-          const uncheckedCount = items.filter(item => !item.checked).length;
-          const checkedCount = items.filter(item => item.checked).length;
-
-          if (loading) {
-            return (
-              <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-                <div className="text-lg text-gray-600">Загрузка...</div>
-              </div>
+            return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4' },
+                h('div', { className: 'max-w-2xl mx-auto' },
+                    // Заголовок
+                    h('div', { className: 'bg-white rounded-2xl shadow-lg p-6 mb-4' },
+                        h('div', { className: 'flex items-center justify-between mb-2' },
+                            h('div', { className: 'flex items-center gap-3' },
+                                h(Icon, { name: 'cart', className: 'w-8 h-8 text-indigo-600' }),
+                                h('h1', { className: 'text-2xl font-bold text-gray-800' }, 'Список покупок')
+                            ),
+                            h('div', { className: 'flex items-center gap-2 text-sm text-gray-500' },
+                                h(Icon, { name: 'users', className: 'w-4 h-4' }),
+                                h('span', null, 'Общий')
+                            )
+                        ),
+                        h('div', { className: 'flex gap-4 text-sm' },
+                            h('span', { className: 'text-gray-600' },
+                                'Осталось: ',
+                                h('span', { className: 'font-semibold text-indigo-600' }, uncheckedCount)
+                            ),
+                            h('span', { className: 'text-gray-600' },
+                                'Куплено: ',
+                                h('span', { className: 'font-semibold text-green-600' }, checkedCount)
+                            )
+                        )
+                    ),
+                    // Добавление
+                    h('div', { className: 'bg-white rounded-2xl shadow-lg p-4 mb-4' },
+                        h('div', { className: 'flex gap-2' },
+                            h('input', {
+                                type: 'text',
+                                value: newItem,
+                                onChange: (e) => setNewItem(e.target.value),
+                                onKeyPress: handleKeyPress,
+                                placeholder: 'Добавить товар...',
+                                className: 'flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                            }),
+                            h('button', {
+                                onClick: addItem,
+                                className: 'bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2'
+                            },
+                                h(Icon, { name: 'plus', className: 'w-5 h-5' }),
+                                h('span', null, 'Добавить')
+                            )
+                        )
+                    ),
+                    // Список
+                    h('div', { className: 'bg-white rounded-2xl shadow-lg overflow-hidden' },
+                        items.length === 0 ? 
+                            h('div', { className: 'p-12 text-center text-gray-500' },
+                                h(Icon, { name: 'cart', className: 'w-16 h-16 mx-auto mb-4 text-gray-300' }),
+                                h('p', { className: 'text-lg' }, 'Список пуст'),
+                                h('p', { className: 'text-sm mt-2' }, 'Добавьте первый товар')
+                            ) :
+                            h('div', { className: 'divide-y divide-gray-100' },
+                                ...items.map(item =>
+                                    h('div', {
+                                        key: item.id,
+                                        className: `p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors ${item.checked ? 'bg-gray-50' : ''}`
+                                    },
+                                        h('button', {
+                                            onClick: () => toggleItem(item.id),
+                                            className: `flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                                item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-indigo-500'
+                                            }`
+                                        },
+                                            item.checked && h(Icon, { name: 'check', className: 'w-4 h-4 text-white' })
+                                        ),
+                                        h('div', { className: 'flex-1 min-w-0' },
+                                            h('p', {
+                                                className: `text-lg ${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}`
+                                            }, item.text),
+                                            h('p', { className: 'text-xs text-gray-400 mt-1' }, `Добавил: ${item.addedBy}`)
+                                        ),
+                                        h('button', {
+                                            onClick: () => deleteItem(item.id),
+                                            className: 'flex-shrink-0 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors'
+                                        },
+                                            h(Icon, { name: 'trash', className: 'w-5 h-5' })
+                                        )
+                                    )
+                                ),
+                                checkedCount > 0 && h('div', { className: 'p-4 bg-gray-50 border-t border-gray-100' },
+                                    h('button', {
+                                        onClick: clearCompleted,
+                                        className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors'
+                                    }, `Удалить купленные (${checkedCount})`)
+                                )
+                            )
+                    ),
+                    h('div', { className: 'mt-4 text-center text-sm text-gray-500' },
+                        h('p', null, 'Список синхронизируется между всеми участниками')
+                    )
+                )
             );
-          }
-
-          return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-              <div className="max-w-2xl mx-auto">
-                <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      {React.createElement(ShoppingCart, { className: "w-8 h-8 text-indigo-600" })}
-                      <h1 className="text-2xl font-bold text-gray-800">Список покупок</h1>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      {React.createElement(Users, { className: "w-4 h-4" })}
-                      <span>Общий</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-4 text-sm">
-                    <span className="text-gray-600">
-                      Осталось: <span className="font-semibold text-indigo-600">{uncheckedCount}</span>
-                    </span>
-                    <span className="text-gray-600">
-                      Куплено: <span className="font-semibold text-green-600">{checkedCount}</span>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newItem}
-                      onChange={(e) => setNewItem(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      placeholder="Добавить товар..."
-                      className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <button
-                      onClick={addItem}
-                      className="bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2"
-                    >
-                      {React.createElement(Plus, { className: "w-5 h-5" })}
-                      <span>Добавить</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                  {items.length === 0 ? (
-                    <div className="p-12 text-center text-gray-500">
-                      {React.createElement(ShoppingCart, { className: "w-16 h-16 mx-auto mb-4 text-gray-300" })}
-                      <p className="text-lg">Список пуст</p>
-                      <p className="text-sm mt-2">Добавьте первый товар</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100">
-                      {items.map((item) => (
-                        <div
-                          key={item.id}
-                          className={`p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors ${
-                            item.checked ? 'bg-gray-50' : ''
-                          }`}
-                        >
-                          <button
-                            onClick={() => toggleItem(item.id)}
-                            className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
-                              item.checked
-                                ? 'bg-green-500 border-green-500'
-                                : 'border-gray-300 hover:border-indigo-500'
-                            }`}
-                          >
-                            {item.checked && React.createElement(Check, { className: "w-4 h-4 text-white" })}
-                          </button>
-                          
-                          <div className="flex-1 min-w-0">
-                            <p
-                              className={`text-lg ${
-                                item.checked
-                                  ? 'line-through text-gray-400'
-                                  : 'text-gray-800'
-                              }`}
-                            >
-                              {item.text}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              Добавил: {item.addedBy}
-                            </p>
-                          </div>
-
-                          <button
-                            onClick={() => deleteItem(item.id)}
-                            className="flex-shrink-0 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            {React.createElement(Trash2, { className: "w-5 h-5" })}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {checkedCount > 0 && (
-                    <div className="p-4 bg-gray-50 border-t border-gray-100">
-                      <button
-                        onClick={clearCompleted}
-                        className="w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors"
-                      >
-                        Удалить купленные ({checkedCount})
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 text-center text-sm text-gray-500">
-                  <p>Список синхронизируется между всеми участниками</p>
-                </div>
-              </div>
-            </div>
-          );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(React.createElement(ShoppingList));
+        root.render(h(ShoppingList));
     </script>
-    
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </body>
 </html>
