@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список покупок</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module">
+        import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, Check, ShoppingCart, Users } from 'lucide-react';
+
+export default function ShoppingList() {
+  const [items, setItems] = useState([]);
+  const [newItem, setNewItem] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState('Гость');
+
+  // Инициализация и загрузка данных
+  useEffect(() => {
+    initApp();
+  }, []);
+
+  const initApp = async () => {
+    // Получаем имя пользователя из Telegram
+    if (window.Telegram?.WebApp) {
+      const tg = window.Telegram.WebApp;
+      tg.expand();
+      tg.ready();
+      
+      const user = tg.initDataUnsafe?.user;
+      if (user) {
+        setUserName(user.first_name || 'Пользователь');
+      }
+    }
+
+    // Загружаем список из хранилища
+    await loadItems();
+    setLoading(false);
+  };
+
+  const loadItems = async () => {
+    try {
+      const result = await window.storage.get('shopping-list', true);
+      if (result && result.value) {
+        const data = JSON.parse(result.value);
+        setItems(data.items || []);
+      }
+    } catch (error) {
+      console.log('Список пока пуст');
+      setItems([]);
+    }
+  };
+
+  const saveItems = async (newItems) => {
+    try {
+      await window.storage.set('shopping-list', JSON.stringify({ items: newItems }), true);
+      setItems(newItems);
+    } catch (error) {
+      console.error('Ошибка сохранения:', error);
+    }
+  };
+
+  const addItem = async () => {
+    if (!newItem.trim()) return;
+
+    const item = {
+      id: Date.now(),
+      text: newItem.trim(),
+      checked: false,
+      addedBy: userName,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedItems = [...items, item];
+    await saveItems(updatedItems);
+    setNewItem('');
+  };
+
+  const toggleItem = async (id) => {
+    const updatedItems = items.map(item =>
+      item.id === id ? { ...item, checked: !item.checked } : item
+    );
+    await saveItems(updatedItems);
+  };
+
+  const deleteItem = async (id) => {
+    const updatedItems = items.filter(item => item.id !== id);
+    await saveItems(updatedItems);
+  };
+
+  const clearCompleted = async () => {
+    const updatedItems = items.filter(item => !item.checked);
+    await saveItems(updatedItems);
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      addItem();
+    }
+  };
+
+  const uncheckedCount = items.filter(item => !item.checked).length;
+  const checkedCount = items.filter(item => item.checked).length;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-lg text-gray-600">Загрузка...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="max-w-2xl mx-auto">
+        {/* Заголовок */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <ShoppingCart className="w-8 h-8 text-indigo-600" />
+              <h1 className="text-2xl font-bold text-gray-800">Список покупок</h1>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Users className="w-4 h-4" />
+              <span>Общий</span>
+            </div>
+          </div>
+          <div className="flex gap-4 text-sm">
+            <span className="text-gray-600">
+              Осталось: <span className="font-semibold text-indigo-600">{uncheckedCount}</span>
+            </span>
+            <span className="text-gray-600">
+              Куплено: <span className="font-semibold text-green-600">{checkedCount}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Добавление товара */}
+        <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newItem}
+              onChange={(e) => setNewItem(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Добавить товар..."
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              onClick={addItem}
+              className="bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Добавить</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Список товаров */}
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+          {items.length === 0 ? (
+            <div className="p-12 text-center text-gray-500">
+              <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg">Список пуст</p>
+              <p className="text-sm mt-2">Добавьте первый товар</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  className={`p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors ${
+                    item.checked ? 'bg-gray-50' : ''
+                  }`}
+                >
+                  <button
+                    onClick={() => toggleItem(item.id)}
+                    className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                      item.checked
+                        ? 'bg-green-500 border-green-500'
+                        : 'border-gray-300 hover:border-indigo-500'
+                    }`}
+                  >
+                    {item.checked && <Check className="w-4 h-4 text-white" />}
+                  </button>
+                  
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-lg ${
+                        item.checked
+                          ? 'line-through text-gray-400'
+                          : 'text-gray-800'
+                      }`}
+                    >
+                      {item.text}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Добавил: {item.addedBy}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => deleteItem(item.id)}
+                    className="flex-shrink-0 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {checkedCount > 0 && (
+            <div className="p-4 bg-gray-50 border-t border-gray-100">
+              <button
+                onClick={clearCompleted}
+                className="w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors"
+              >
+                Удалить купленные ({checkedCount})
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Информация */}
+        <div className="mt-4 text-center text-sm text-gray-500">
+          <p>Список синхронизируется между всеми участниками</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+        // Сюда вставь код React компонента из артефакта
+    </script>
+</body>
+</html>
+```
+
+3. В настройках репозитория включи GitHub Pages (Settings → Pages → Source: main branch)
+4. Получишь URL вида `https://username.github.io/repo-name`
+
+### Вариант Б: Vercel
+
+1. Зарегистрируйся на [vercel.com](https://vercel.com)
+2. Создай новый проект
+3. Загрузи файл `index.html`
+4. Получишь URL вида `https://your-app.vercel.app`
+
+### Вариант В: Netlify Drop
+
+1. Зайди на [app.netlify.com/drop](https://app.netlify.com/drop)
+2. Перетащи файл `index.html`
+3. Получишь URL
+
+## 3. Подключи Web App к боту
+
+Напиши @BotFather:
+```
+/newapp
+```
+
+Выбери своего бота, затем:
+- **Title**: Список покупок
+- **Description**: Общий список покупок для группы
+- **Photo**: загрузи иконку (512x512px) или пропусти
+- **Demo GIF/Video**: пропусти
+- **Web App URL**: вставь URL твоего приложения
+- **Short name**: shopping (это будет в ссылке)
+
+## 4. Настрой Menu Button (опционально)
+
+Чтобы кнопка появилась в меню бота:
+```
+/setmenubutton
