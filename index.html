@@ -37,6 +37,8 @@
             const [newItem, setNewItem] = useState('');
             const [loading, setLoading] = useState(true);
             const [userName, setUserName] = useState('Гость');
+            const [error, setError] = useState('');
+            const [useCloudStorage, setUseCloudStorage] = useState(false);
 
             useEffect(() => {
                 initApp();
@@ -52,6 +54,14 @@
                     if (user) {
                         setUserName(user.first_name || 'Пользователь');
                     }
+
+                    // Проверяем доступность CloudStorage
+                    if (window.Telegram.WebApp.CloudStorage) {
+                        setUseCloudStorage(true);
+                        console.log('Используем CloudStorage');
+                    } else {
+                        console.log('CloudStorage недоступен, используем память');
+                    }
                 }
 
                 await loadItems();
@@ -60,28 +70,73 @@
 
             const loadItems = async () => {
                 try {
-                    const result = await window.storage.get('shopping-list', true);
-                    if (result && result.value) {
-                        const data = JSON.parse(result.value);
-                        setItems(data.items || []);
+                    if (useCloudStorage && window.Telegram?.WebApp?.CloudStorage) {
+                        // Используем Telegram CloudStorage
+                        window.Telegram.WebApp.CloudStorage.getItem('shopping-list', (err, value) => {
+                            if (!err && value) {
+                                const data = JSON.parse(value);
+                                setItems(data.items || []);
+                            }
+                        });
+                    } else if (window.storage) {
+                        // Используем новое API
+                        const result = await window.storage.get('shopping-list', true);
+                        if (result && result.value) {
+                            const data = JSON.parse(result.value);
+                            setItems(data.items || []);
+                        }
                     }
                 } catch (error) {
-                    console.log('Список пока пуст');
+                    console.log('Не удалось загрузить список:', error);
                     setItems([]);
                 }
             };
 
             const saveItems = async (newItems) => {
                 try {
-                    await window.storage.set('shopping-list', JSON.stringify({ items: newItems }), true);
-                    setItems(newItems);
+                    setError('');
+                    console.log('Сохраняем:', newItems.length, 'товаров');
+                    
+                    if (useCloudStorage && window.Telegram?.WebApp?.CloudStorage) {
+                        // Используем Telegram CloudStorage
+                        window.Telegram.WebApp.CloudStorage.setItem(
+                            'shopping-list', 
+                            JSON.stringify({ items: newItems }),
+                            (err, saved) => {
+                                if (!err) {
+                                    setItems(newItems);
+                                    console.log('Сохранено через CloudStorage');
+                                } else {
+                                    setError('Ошибка сохранения');
+                                    console.error('Ошибка CloudStorage:', err);
+                                }
+                            }
+                        );
+                    } else if (window.storage) {
+                        // Используем новое API
+                        await window.storage.set('shopping-list', JSON.stringify({ items: newItems }), true);
+                        setItems(newItems);
+                        console.log('Сохранено через window.storage');
+                    } else {
+                        // Запасной вариант - просто в памяти
+                        setItems(newItems);
+                        console.log('Сохранено в памяти (без синхронизации)');
+                    }
                 } catch (error) {
+                    setError('Ошибка: ' + error.message);
                     console.error('Ошибка сохранения:', error);
+                    // Всё равно обновляем локально
+                    setItems(newItems);
                 }
             };
 
             const addItem = async () => {
-                if (!newItem.trim()) return;
+                console.log('Добавление товара:', newItem);
+                
+                if (!newItem.trim()) {
+                    console.log('Пустое поле');
+                    return;
+                }
 
                 const item = {
                     id: Date.now(),
@@ -91,7 +146,11 @@
                     timestamp: new Date().toISOString()
                 };
 
+                console.log('Новый товар:', item);
+
                 const updatedItems = [...items, item];
+                console.log('Обновлённый список:', updatedItems);
+                
                 await saveItems(updatedItems);
                 setNewItem('');
             };
@@ -139,7 +198,7 @@
                             ),
                             h('div', { className: 'flex items-center gap-1 text-xs text-gray-500' },
                                 h(Icon, { name: 'users', className: 'w-4 h-4' }),
-                                h('span', null, 'Общий')
+                                h('span', null, useCloudStorage ? 'Cloud' : 'Память')
                             )
                         ),
                         h('div', { className: 'flex gap-3 text-sm' },
@@ -151,7 +210,8 @@
                                 'Куплено: ',
                                 h('span', { className: 'font-semibold text-green-600' }, checkedCount)
                             )
-                        )
+                        ),
+                        error && h('div', { className: 'mt-2 text-xs text-red-500' }, error)
                     ),
                     // Добавление
                     h('div', { className: 'bg-white rounded-2xl shadow-lg p-3 mb-4' },
@@ -217,7 +277,7 @@
                             )
                     ),
                     h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
-                        h('p', null, 'Список синхронизируется между всеми участниками')
+                        h('p', null, items.length > 0 ? `Всего товаров: ${items.length}` : 'Синхронизация между участниками')
                     )
                 )
             );
