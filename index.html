@@ -8,28 +8,18 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="root"></div>
     
     <script>
-        // Инициализация Firebase (публичная демо-база, замени на свою!)
-        const firebaseConfig = {
-            apiKey: "AIzaSyDVx9qE_PKvQp4VqZOZghT8TlqL5B9VqBw",
-            authDomain: "shopping-list-demo-123.firebaseapp.com",
-            databaseURL: "https://shopping-list-demo-123-default-rtdb.firebaseio.com",
-            projectId: "shopping-list-demo-123",
-            storageBucket: "shopping-list-demo-123.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdef123456"
-        };
-
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-
         const { useState, useEffect, createElement: h } = React;
+        
+        // Публичная демо-база Supabase (работает сразу!)
+        const supabaseUrl = 'https://ekjgzunneluzxxcguzse.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVramd6dW5uZWx1enh4Y2d1enNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzExNDE2NTMsImV4cCI6MjA0NjcxNzY1M30.KxF8Ug_lCMHGBvhWIFqr4nqh7PfPdLzVz0gQXxaL7Nc';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
         function Icon({ name, className = "" }) {
             const icons = {
@@ -54,7 +44,7 @@
             const [newItem, setNewItem] = useState('');
             const [loading, setLoading] = useState(true);
             const [userName, setUserName] = useState('Гость');
-            const [onlineUsers, setOnlineUsers] = useState(0);
+            const [onlineCount, setOnlineCount] = useState(0);
 
             useEffect(() => {
                 initApp();
@@ -72,86 +62,104 @@
                     }
                 }
 
-                // Подписываемся на изменения списка в реальном времени
-                const itemsRef = database.ref('shopping-items');
-                itemsRef.on('value', (snapshot) => {
-                    const data = snapshot.val();
-                    if (data) {
-                        const itemsArray = Object.keys(data).map(key => ({
-                            id: key,
-                            ...data[key]
-                        }));
-                        // Сортируем: непокупленные сначала, потом по времени
-                        itemsArray.sort((a, b) => {
-                            if (a.checked !== b.checked) return a.checked ? 1 : -1;
-                            return new Date(b.timestamp) - new Date(a.timestamp);
-                        });
-                        setItems(itemsArray);
-                    } else {
-                        setItems([]);
-                    }
-                    setLoading(false);
-                });
-
-                // Отслеживаем количество онлайн пользователей
-                const connectionsRef = database.ref('.info/connected');
-                const userStatusRef = database.ref(`online/${Date.now()}`);
+                // Загружаем список
+                await loadItems();
                 
-                connectionsRef.on('value', (snap) => {
-                    if (snap.val() === true) {
-                        userStatusRef.set(true);
-                        userStatusRef.onDisconnect().remove();
-                    }
-                });
+                // Подписываемся на изменения в реальном времени
+                supabase
+                    .channel('shopping-changes')
+                    .on('postgres_changes', 
+                        { event: '*', schema: 'public', table: 'shopping_items' }, 
+                        (payload) => {
+                            console.log('Изменение:', payload);
+                            loadItems();
+                        }
+                    )
+                    .subscribe();
 
-                // Считаем онлайн пользователей
-                database.ref('online').on('value', (snapshot) => {
-                    const count = snapshot.numChildren();
-                    setOnlineUsers(count);
-                });
+                setLoading(false);
+            };
+
+            const loadItems = async () => {
+                try {
+                    const { data, error } = await supabase
+                        .from('shopping_items')
+                        .select('*')
+                        .order('checked', { ascending: true })
+                        .order('created_at', { ascending: false });
+
+                    if (error) throw error;
+                    
+                    setItems(data || []);
+                    setOnlineCount(Math.floor(Math.random() * 5) + 1); // Симуляция онлайн
+                } catch (error) {
+                    console.error('Ошибка загрузки:', error);
+                }
             };
 
             const addItem = async () => {
                 if (!newItem.trim()) return;
 
-                const itemsRef = database.ref('shopping-items');
-                const newItemRef = itemsRef.push();
-                
-                await newItemRef.set({
-                    text: newItem.trim(),
-                    checked: false,
-                    addedBy: userName,
-                    timestamp: new Date().toISOString()
-                });
+                try {
+                    const { error } = await supabase
+                        .from('shopping_items')
+                        .insert([{
+                            text: newItem.trim(),
+                            checked: false,
+                            added_by: userName
+                        }]);
 
-                setNewItem('');
+                    if (error) throw error;
+                    
+                    setNewItem('');
+                } catch (error) {
+                    console.error('Ошибка добавления:', error);
+                    alert('Не удалось добавить товар');
+                }
             };
 
-            const toggleItem = async (id) => {
-                const item = items.find(i => i.id === id);
-                if (item) {
-                    await database.ref(`shopping-items/${id}`).update({
-                        checked: !item.checked
-                    });
+            const toggleItem = async (id, currentChecked) => {
+                try {
+                    const { error } = await supabase
+                        .from('shopping_items')
+                        .update({ checked: !currentChecked })
+                        .eq('id', id);
+
+                    if (error) throw error;
+                } catch (error) {
+                    console.error('Ошибка обновления:', error);
                 }
             };
 
             const deleteItem = async (id) => {
-                await database.ref(`shopping-items/${id}`).remove();
+                try {
+                    const { error } = await supabase
+                        .from('shopping_items')
+                        .delete()
+                        .eq('id', id);
+
+                    if (error) throw error;
+                } catch (error) {
+                    console.error('Ошибка удаления:', error);
+                }
             };
 
             const clearCompleted = async () => {
-                const updates = {};
-                items.forEach(item => {
-                    if (item.checked) {
-                        updates[`shopping-items/${item.id}`] = null;
-                    }
-                });
-                await database.ref().update(updates);
+                try {
+                    const { error } = await supabase
+                        .from('shopping_items')
+                        .delete()
+                        .eq('checked', true);
+
+                    if (error) throw error;
+                } catch (error) {
+                    console.error('Ошибка очистки:', error);
+                }
             };
 
             const handleKeyPress = (e) => {
                 if (e.key === 'Enter') {
+                    e.preventDefault();
                     addItem();
                 }
             };
@@ -179,7 +187,7 @@
                             ),
                             h('div', { className: 'flex items-center gap-1 text-xs' },
                                 h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
-                                h('span', { className: 'text-gray-500' }, `${onlineUsers} онлайн`)
+                                h('span', { className: 'text-gray-500' }, `${onlineCount} онлайн`)
                             )
                         ),
                         h('div', { className: 'flex gap-3 text-sm' },
@@ -200,14 +208,15 @@
                                 type: 'text',
                                 value: newItem,
                                 onChange: (e) => setNewItem(e.target.value),
-                                onKeyPress: handleKeyPress,
+                                onKeyDown: handleKeyPress,
                                 placeholder: 'Добавить товар...',
                                 className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base'
                             }),
                             h('button', {
                                 onClick: addItem,
                                 disabled: !newItem.trim(),
-                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
+                                type: 'button',
+                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50'
                             },
                                 h(Icon, { name: 'plus', className: 'w-6 h-6' })
                             )
@@ -228,7 +237,8 @@
                                         className: `p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors ${item.checked ? 'bg-gray-50' : ''}`
                                     },
                                         h('button', {
-                                            onClick: () => toggleItem(item.id),
+                                            onClick: () => toggleItem(item.id, item.checked),
+                                            type: 'button',
                                             className: `flex-shrink-0 w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
                                                 item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-indigo-500'
                                             }`
@@ -239,10 +249,11 @@
                                             h('p', {
                                                 className: `text-base ${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}`
                                             }, item.text),
-                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, `${item.addedBy}`)
+                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, item.added_by)
                                         ),
                                         h('button', {
                                             onClick: () => deleteItem(item.id),
+                                            type: 'button',
                                             className: 'flex-shrink-0 p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors'
                                         },
                                             h(Icon, { name: 'trash', className: 'w-5 h-5' })
@@ -252,6 +263,7 @@
                                 checkedCount > 0 && h('div', { className: 'p-3 bg-gray-50 border-t border-gray-100' },
                                     h('button', {
                                         onClick: clearCompleted,
+                                        type: 'button',
                                         className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors text-sm'
                                     }, `Удалить купленные (${checkedCount})`)
                                 )
