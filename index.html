@@ -16,10 +16,16 @@
     <script>
         const { useState, useEffect, createElement: h } = React;
         
-        // Публичная демо-база Supabase (работает сразу!)
+        // Supabase настройки
         const supabaseUrl = 'https://ekjgzunneluzxxcguzse.supabase.co';
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVramd6dW5uZWx1enh4Y2d1enNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzExNDE2NTMsImV4cCI6MjA0NjcxNzY1M30.KxF8Ug_lCMHGBvhWIFqr4nqh7PfPdLzVz0gQXxaL7Nc';
-        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        
+        let supabase = null;
+        try {
+            supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        } catch (e) {
+            console.error('Ошибка инициализации Supabase:', e);
+        }
 
         function Icon({ name, className = "" }) {
             const icons = {
@@ -28,7 +34,8 @@
                 check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
                 cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
                 users: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>',
-                refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>'
+                refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>',
+                alert: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>'
             };
             return h('svg', {
                 className: className,
@@ -44,7 +51,8 @@
             const [newItem, setNewItem] = useState('');
             const [loading, setLoading] = useState(true);
             const [userName, setUserName] = useState('Гость');
-            const [onlineCount, setOnlineCount] = useState(0);
+            const [error, setError] = useState('');
+            const [connectionStatus, setConnectionStatus] = useState('connecting');
 
             useEffect(() => {
                 initApp();
@@ -62,20 +70,34 @@
                     }
                 }
 
+                // Проверяем подключение
+                if (!supabase) {
+                    setError('Не удалось подключиться к серверу');
+                    setConnectionStatus('error');
+                    setLoading(false);
+                    return;
+                }
+
                 // Загружаем список
-                await loadItems();
+                const success = await loadItems();
                 
-                // Подписываемся на изменения в реальном времени
-                supabase
-                    .channel('shopping-changes')
-                    .on('postgres_changes', 
-                        { event: '*', schema: 'public', table: 'shopping_items' }, 
-                        (payload) => {
-                            console.log('Изменение:', payload);
-                            loadItems();
-                        }
-                    )
-                    .subscribe();
+                if (success) {
+                    setConnectionStatus('connected');
+                    // Подписываемся на изменения
+                    try {
+                        supabase
+                            .channel('shopping-changes')
+                            .on('postgres_changes', 
+                                { event: '*', schema: 'public', table: 'shopping_items' }, 
+                                () => loadItems()
+                            )
+                            .subscribe();
+                    } catch (e) {
+                        console.log('Realtime недоступен');
+                    }
+                } else {
+                    setConnectionStatus('error');
+                }
 
                 setLoading(false);
             };
@@ -88,72 +110,131 @@
                         .order('checked', { ascending: true })
                         .order('created_at', { ascending: false });
 
-                    if (error) throw error;
+                    if (error) {
+                        console.error('Ошибка загрузки:', error);
+                        setError('Ошибка загрузки данных');
+                        return false;
+                    }
                     
                     setItems(data || []);
-                    setOnlineCount(Math.floor(Math.random() * 5) + 1); // Симуляция онлайн
-                } catch (error) {
-                    console.error('Ошибка загрузки:', error);
+                    setError('');
+                    return true;
+                } catch (e) {
+                    console.error('Критическая ошибка:', e);
+                    setError('Не удалось подключиться к серверу');
+                    return false;
                 }
             };
 
             const addItem = async () => {
                 if (!newItem.trim()) return;
 
+                if (!supabase || connectionStatus === 'error') {
+                    setError('Нет подключения к серверу');
+                    return;
+                }
+
+                setError('');
+                const itemText = newItem.trim();
+                setNewItem('');
+
                 try {
-                    const { error } = await supabase
+                    const { data, error } = await supabase
                         .from('shopping_items')
                         .insert([{
-                            text: newItem.trim(),
+                            text: itemText,
                             checked: false,
                             added_by: userName
-                        }]);
+                        }])
+                        .select();
 
-                    if (error) throw error;
-                    
-                    setNewItem('');
-                } catch (error) {
-                    console.error('Ошибка добавления:', error);
-                    alert('Не удалось добавить товар');
+                    if (error) {
+                        console.error('Ошибка добавления:', error);
+                        setError('Не удалось добавить: ' + error.message);
+                        setNewItem(itemText); // Возвращаем текст
+                        return;
+                    }
+
+                    // Добавляем локально для быстрого отображения
+                    if (data && data[0]) {
+                        setItems(prev => [data[0], ...prev]);
+                    }
+                } catch (e) {
+                    console.error('Критическая ошибка добавления:', e);
+                    setError('Ошибка сети. Проверьте интернет.');
+                    setNewItem(itemText); // Возвращаем текст
                 }
             };
 
             const toggleItem = async (id, currentChecked) => {
+                if (!supabase) return;
+
+                // Оптимистичное обновление
+                setItems(prev => prev.map(item =>
+                    item.id === id ? { ...item, checked: !currentChecked } : item
+                ));
+
                 try {
                     const { error } = await supabase
                         .from('shopping_items')
                         .update({ checked: !currentChecked })
                         .eq('id', id);
 
-                    if (error) throw error;
-                } catch (error) {
-                    console.error('Ошибка обновления:', error);
+                    if (error) {
+                        console.error('Ошибка обновления:', error);
+                        // Откатываем изменение
+                        setItems(prev => prev.map(item =>
+                            item.id === id ? { ...item, checked: currentChecked } : item
+                        ));
+                    }
+                } catch (e) {
+                    console.error('Ошибка:', e);
+                    loadItems(); // Перезагружаем
                 }
             };
 
             const deleteItem = async (id) => {
+                if (!supabase) return;
+
+                // Оптимистичное удаление
+                const backup = items;
+                setItems(prev => prev.filter(item => item.id !== id));
+
                 try {
                     const { error } = await supabase
                         .from('shopping_items')
                         .delete()
                         .eq('id', id);
 
-                    if (error) throw error;
-                } catch (error) {
-                    console.error('Ошибка удаления:', error);
+                    if (error) {
+                        console.error('Ошибка удаления:', error);
+                        setItems(backup); // Откатываем
+                    }
+                } catch (e) {
+                    console.error('Ошибка:', e);
+                    setItems(backup);
                 }
             };
 
             const clearCompleted = async () => {
+                if (!supabase) return;
+
+                const backup = items;
+                setItems(prev => prev.filter(item => !item.checked));
+
                 try {
                     const { error } = await supabase
                         .from('shopping_items')
                         .delete()
                         .eq('checked', true);
 
-                    if (error) throw error;
-                } catch (error) {
-                    console.error('Ошибка очистки:', error);
+                    if (error) {
+                        console.error('Ошибка очистки:', error);
+                        setItems(backup);
+                    }
+                } catch (e) {
+                    console.error('Ошибка:', e);
+                    setItems(backup);
                 }
             };
 
@@ -186,8 +267,16 @@
                                 h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
                             ),
                             h('div', { className: 'flex items-center gap-1 text-xs' },
-                                h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
-                                h('span', { className: 'text-gray-500' }, `${onlineCount} онлайн`)
+                                h('div', { 
+                                    className: `w-2 h-2 rounded-full ${
+                                        connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' : 
+                                        connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
+                                    }` 
+                                }),
+                                h('span', { className: 'text-gray-500' }, 
+                                    connectionStatus === 'connected' ? 'Онлайн' :
+                                    connectionStatus === 'error' ? 'Офлайн' : 'Подключение...'
+                                )
                             )
                         ),
                         h('div', { className: 'flex gap-3 text-sm' },
@@ -199,6 +288,10 @@
                                 'Куплено: ',
                                 h('span', { className: 'font-semibold text-green-600' }, checkedCount)
                             )
+                        ),
+                        error && h('div', { className: 'mt-2 flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg' },
+                            h(Icon, { name: 'alert', className: 'w-4 h-4' }),
+                            h('span', null, error)
                         )
                     ),
                     // Добавление
@@ -210,13 +303,14 @@
                                 onChange: (e) => setNewItem(e.target.value),
                                 onKeyDown: handleKeyPress,
                                 placeholder: 'Добавить товар...',
-                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base'
+                                disabled: connectionStatus === 'error',
+                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base disabled:bg-gray-100'
                             }),
                             h('button', {
                                 onClick: addItem,
-                                disabled: !newItem.trim(),
+                                disabled: !newItem.trim() || connectionStatus === 'error',
                                 type: 'button',
-                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50'
+                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
                             },
                                 h(Icon, { name: 'plus', className: 'w-6 h-6' })
                             )
@@ -249,7 +343,7 @@
                                             h('p', {
                                                 className: `text-base ${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}`
                                             }, item.text),
-                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, item.added_by)
+                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, item.added_by || 'Неизвестно')
                                         ),
                                         h('button', {
                                             onClick: () => deleteItem(item.id),
@@ -269,8 +363,19 @@
                                 )
                             )
                     ),
-                    h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
-                        h('p', null, '✨ Синхронизация в реальном времени')
+                    h('div', { className: 'mt-3 text-center' },
+                        connectionStatus === 'connected' ?
+                            h('p', { className: 'text-xs text-gray-500' }, '✨ Синхронизация в реальном времени') :
+                            h('button', {
+                                onClick: () => {
+                                    setConnectionStatus('connecting');
+                                    initApp();
+                                },
+                                className: 'text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 mx-auto'
+                            },
+                                h(Icon, { name: 'refresh', className: 'w-4 h-4' }),
+                                h('span', null, 'Переподключиться')
+                            )
                     )
                 )
             );
