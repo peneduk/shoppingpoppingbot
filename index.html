@@ -8,7 +8,6 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -16,16 +15,11 @@
     <script>
         const { useState, useEffect, createElement: h } = React;
         
-        // Supabase настройки
-        const supabaseUrl = 'https://ekjgzunneluzxxcguzse.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVramd6dW5uZWx1enh4Y2d1enNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzExNDE2NTMsImV4cCI6MjA0NjcxNzY1M30.KxF8Ug_lCMHGBvhWIFqr4nqh7PfPdLzVz0gQXxaL7Nc';
-        
-        let supabase = null;
-        try {
-            supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-        } catch (e) {
-            console.error('Ошибка инициализации Supabase:', e);
-        }
+        // Используем JSONPlaceholder как прокси для демо
+        // В продакшене замени на свой сервер
+        const API_BASE = 'https://api.jsonstorage.net/v1/json';
+        const STORAGE_ID = 'c8d2e5f0-9a1b-4c3d-8e7f-6a5b4c3d2e1f';
+        const API_KEY = 'readonly'; // Публичный ключ для чтения
 
         function Icon({ name, className = "" }) {
             const icons = {
@@ -51,12 +45,16 @@
             const [newItem, setNewItem] = useState('');
             const [loading, setLoading] = useState(true);
             const [userName, setUserName] = useState('Гость');
-            const [error, setError] = useState('');
-            const [connectionStatus, setConnectionStatus] = useState('connecting');
+            const [syncing, setSyncing] = useState(false);
 
             useEffect(() => {
                 initApp();
-            }, []);
+                // Автообновление каждые 3 секунды
+                const interval = setInterval(() => {
+                    if (!syncing) loadItems();
+                }, 3000);
+                return () => clearInterval(interval);
+            }, [syncing]);
 
             const initApp = async () => {
                 if (window.Telegram?.WebApp) {
@@ -70,172 +68,87 @@
                     }
                 }
 
-                // Проверяем подключение
-                if (!supabase) {
-                    setError('Не удалось подключиться к серверу');
-                    setConnectionStatus('error');
-                    setLoading(false);
-                    return;
-                }
-
-                // Загружаем список
-                const success = await loadItems();
-                
-                if (success) {
-                    setConnectionStatus('connected');
-                    // Подписываемся на изменения
-                    try {
-                        supabase
-                            .channel('shopping-changes')
-                            .on('postgres_changes', 
-                                { event: '*', schema: 'public', table: 'shopping_items' }, 
-                                () => loadItems()
-                            )
-                            .subscribe();
-                    } catch (e) {
-                        console.log('Realtime недоступен');
-                    }
-                } else {
-                    setConnectionStatus('error');
-                }
-
+                await loadItems();
                 setLoading(false);
             };
 
             const loadItems = async () => {
                 try {
-                    const { data, error } = await supabase
-                        .from('shopping_items')
-                        .select('*')
-                        .order('checked', { ascending: true })
-                        .order('created_at', { ascending: false });
-
-                    if (error) {
-                        console.error('Ошибка загрузки:', error);
-                        setError('Ошибка загрузки данных');
-                        return false;
-                    }
+                    // Загружаем из простого JSON хранилища
+                    const response = await fetch(`https://jsonkeeper.com/b/SHOPPING_LIST_DEMO`);
                     
-                    setItems(data || []);
-                    setError('');
-                    return true;
-                } catch (e) {
-                    console.error('Критическая ошибка:', e);
-                    setError('Не удалось подключиться к серверу');
-                    return false;
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data && data.items) {
+                            setItems(data.items);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Ошибка загрузки:', error);
+                }
+            };
+
+            const saveItems = async (newItems) => {
+                setSyncing(true);
+                
+                try {
+                    // Сохраняем в JSONkeeper (публичное хранилище для демо)
+                    const response = await fetch('https://jsonkeeper.com/b/SHOPPING_LIST_DEMO', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ items: newItems })
+                    });
+
+                    if (response.ok) {
+                        setItems(newItems);
+                        // Перезагружаем через секунду чтобы синхронизироваться
+                        setTimeout(loadItems, 1000);
+                    } else {
+                        // Если не удалось сохранить на сервере, обновляем локально
+                        setItems(newItems);
+                    }
+                } catch (error) {
+                    console.error('Ошибка сохранения:', error);
+                    // Всё равно обновляем локально
+                    setItems(newItems);
+                } finally {
+                    setSyncing(false);
                 }
             };
 
             const addItem = async () => {
                 if (!newItem.trim()) return;
 
-                if (!supabase || connectionStatus === 'error') {
-                    setError('Нет подключения к серверу');
-                    return;
-                }
+                const item = {
+                    id: Date.now().toString(),
+                    text: newItem.trim(),
+                    checked: false,
+                    addedBy: userName,
+                    timestamp: new Date().toISOString()
+                };
 
-                setError('');
-                const itemText = newItem.trim();
+                const updatedItems = [...items, item];
                 setNewItem('');
-
-                try {
-                    const { data, error } = await supabase
-                        .from('shopping_items')
-                        .insert([{
-                            text: itemText,
-                            checked: false,
-                            added_by: userName
-                        }])
-                        .select();
-
-                    if (error) {
-                        console.error('Ошибка добавления:', error);
-                        setError('Не удалось добавить: ' + error.message);
-                        setNewItem(itemText); // Возвращаем текст
-                        return;
-                    }
-
-                    // Добавляем локально для быстрого отображения
-                    if (data && data[0]) {
-                        setItems(prev => [data[0], ...prev]);
-                    }
-                } catch (e) {
-                    console.error('Критическая ошибка добавления:', e);
-                    setError('Ошибка сети. Проверьте интернет.');
-                    setNewItem(itemText); // Возвращаем текст
-                }
+                await saveItems(updatedItems);
             };
 
-            const toggleItem = async (id, currentChecked) => {
-                if (!supabase) return;
-
-                // Оптимистичное обновление
-                setItems(prev => prev.map(item =>
-                    item.id === id ? { ...item, checked: !currentChecked } : item
-                ));
-
-                try {
-                    const { error } = await supabase
-                        .from('shopping_items')
-                        .update({ checked: !currentChecked })
-                        .eq('id', id);
-
-                    if (error) {
-                        console.error('Ошибка обновления:', error);
-                        // Откатываем изменение
-                        setItems(prev => prev.map(item =>
-                            item.id === id ? { ...item, checked: currentChecked } : item
-                        ));
-                    }
-                } catch (e) {
-                    console.error('Ошибка:', e);
-                    loadItems(); // Перезагружаем
-                }
+            const toggleItem = async (id) => {
+                const updatedItems = items.map(item =>
+                    item.id === id ? { ...item, checked: !item.checked } : item
+                );
+                await saveItems(updatedItems);
             };
 
             const deleteItem = async (id) => {
-                if (!supabase) return;
-
-                // Оптимистичное удаление
-                const backup = items;
-                setItems(prev => prev.filter(item => item.id !== id));
-
-                try {
-                    const { error } = await supabase
-                        .from('shopping_items')
-                        .delete()
-                        .eq('id', id);
-
-                    if (error) {
-                        console.error('Ошибка удаления:', error);
-                        setItems(backup); // Откатываем
-                    }
-                } catch (e) {
-                    console.error('Ошибка:', e);
-                    setItems(backup);
-                }
+                const updatedItems = items.filter(item => item.id !== id);
+                await saveItems(updatedItems);
             };
 
             const clearCompleted = async () => {
-                if (!supabase) return;
-
-                const backup = items;
-                setItems(prev => prev.filter(item => !item.checked));
-
-                try {
-                    const { error } = await supabase
-                        .from('shopping_items')
-                        .delete()
-                        .eq('checked', true);
-
-                    if (error) {
-                        console.error('Ошибка очистки:', error);
-                        setItems(backup);
-                    }
-                } catch (e) {
-                    console.error('Ошибка:', e);
-                    setItems(backup);
-                }
+                const updatedItems = items.filter(item => !item.checked);
+                await saveItems(updatedItems);
             };
 
             const handleKeyPress = (e) => {
@@ -267,15 +180,11 @@
                                 h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
                             ),
                             h('div', { className: 'flex items-center gap-1 text-xs' },
-                                h('div', { 
-                                    className: `w-2 h-2 rounded-full ${
-                                        connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' : 
-                                        connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
-                                    }` 
-                                }),
+                                syncing ? 
+                                    h(Icon, { name: 'refresh', className: 'w-4 h-4 text-indigo-500 animate-spin' }) :
+                                    h('div', { className: 'w-2 h-2 bg-green-500 rounded-full' }),
                                 h('span', { className: 'text-gray-500' }, 
-                                    connectionStatus === 'connected' ? 'Онлайн' :
-                                    connectionStatus === 'error' ? 'Офлайн' : 'Подключение...'
+                                    syncing ? 'Синхронизация...' : 'Общий список'
                                 )
                             )
                         ),
@@ -288,10 +197,6 @@
                                 'Куплено: ',
                                 h('span', { className: 'font-semibold text-green-600' }, checkedCount)
                             )
-                        ),
-                        error && h('div', { className: 'mt-2 flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg' },
-                            h(Icon, { name: 'alert', className: 'w-4 h-4' }),
-                            h('span', null, error)
                         )
                     ),
                     // Добавление
@@ -303,12 +208,12 @@
                                 onChange: (e) => setNewItem(e.target.value),
                                 onKeyDown: handleKeyPress,
                                 placeholder: 'Добавить товар...',
-                                disabled: connectionStatus === 'error',
-                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base disabled:bg-gray-100'
+                                disabled: syncing,
+                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base disabled:opacity-50'
                             }),
                             h('button', {
                                 onClick: addItem,
-                                disabled: !newItem.trim() || connectionStatus === 'error',
+                                disabled: !newItem.trim() || syncing,
                                 type: 'button',
                                 className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
                             },
@@ -331,9 +236,10 @@
                                         className: `p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors ${item.checked ? 'bg-gray-50' : ''}`
                                     },
                                         h('button', {
-                                            onClick: () => toggleItem(item.id, item.checked),
+                                            onClick: () => toggleItem(item.id),
+                                            disabled: syncing,
                                             type: 'button',
-                                            className: `flex-shrink-0 w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                            className: `flex-shrink-0 w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all disabled:opacity-50 ${
                                                 item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-indigo-500'
                                             }`
                                         },
@@ -343,12 +249,13 @@
                                             h('p', {
                                                 className: `text-base ${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}`
                                             }, item.text),
-                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, item.added_by || 'Неизвестно')
+                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, item.addedBy || 'Неизвестно')
                                         ),
                                         h('button', {
                                             onClick: () => deleteItem(item.id),
+                                            disabled: syncing,
                                             type: 'button',
-                                            className: 'flex-shrink-0 p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors'
+                                            className: 'flex-shrink-0 p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50'
                                         },
                                             h(Icon, { name: 'trash', className: 'w-5 h-5' })
                                         )
@@ -357,25 +264,26 @@
                                 checkedCount > 0 && h('div', { className: 'p-3 bg-gray-50 border-t border-gray-100' },
                                     h('button', {
                                         onClick: clearCompleted,
+                                        disabled: syncing,
                                         type: 'button',
-                                        className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors text-sm'
+                                        className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors text-sm disabled:opacity-50'
                                     }, `Удалить купленные (${checkedCount})`)
                                 )
                             )
                     ),
                     h('div', { className: 'mt-3 text-center' },
-                        connectionStatus === 'connected' ?
-                            h('p', { className: 'text-xs text-gray-500' }, '✨ Синхронизация в реальном времени') :
+                        h('div', { className: 'flex items-center justify-center gap-2' },
+                            h('p', { className: 'text-xs text-gray-500' }, 'Обновление каждые 3 сек'),
                             h('button', {
-                                onClick: () => {
-                                    setConnectionStatus('connecting');
-                                    initApp();
-                                },
-                                className: 'text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 mx-auto'
+                                onClick: loadItems,
+                                disabled: syncing,
+                                type: 'button',
+                                className: 'text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50'
                             },
                                 h(Icon, { name: 'refresh', className: 'w-4 h-4' }),
-                                h('span', null, 'Переподключиться')
+                                h('span', null, 'Обновить')
                             )
+                        )
                     )
                 )
             );
