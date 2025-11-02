@@ -27,7 +27,10 @@
             trash: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
             check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
             cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
-            refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>'
+            refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>',
+            share: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.18 9.5 11.232 10 11c.5-.232.886-.68 1.184-1.342A2.99 2.99 0 0113 7a3 3 0 013 3c0 .5-.2 1.5-.5 2s-1 .5-1.5.5h-1c-1 0-1.5-.5-2.5-.5s-1.5.5-2.5 1h-1a3.003 3.003 0 01-3 3 3 3 0 01-3-3 3 3 0 013-3c.5 0 1 .1 1.5.342zM12 21a9 9 0 100-18 9 9 0 000 18z"/>',
+            x: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>',
+            user: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>'
         };
         return h('svg', {
             className: className,
@@ -38,29 +41,138 @@
         });
     }
 
+    // =========================================================================
+    // НОВЫЙ КОМПОНЕНТ: Настройки разделения
+    // =========================================================================
+    function ShareSettings({ ownerId, sharedUsers, onUpdate, onClose, currentUserId }) {
+        const [newUserId, setNewUserId] = useState('');
+        
+        // В упрощенном приложении мы предполагаем, что список принадлежит текущему пользователю
+        // и все его элементы имеют одинаковый shared_with массив.
+        const isOwner = ownerId === currentUserId; 
+        
+        const handleAddUser = () => {
+            const id = parseInt(newUserId.trim());
+            if (isNaN(id) || id === currentUserId) {
+                alert('Пожалуйста, введите корректный ID пользователя Telegram, отличный от вашего.');
+                return;
+            }
+            if (sharedUsers.includes(id)) {
+                alert('Этот пользователь уже добавлен.');
+                return;
+            }
+            
+            // Вызываем функцию обновления с новым массивом
+            onUpdate([...sharedUsers, id]);
+            setNewUserId('');
+        };
+
+        const handleRemoveUser = (id) => {
+            const newSharedUsers = sharedUsers.filter(userId => userId !== id);
+            onUpdate(newSharedUsers);
+        };
+        
+        // Только владелец может управлять настройками
+        if (!isOwner) {
+             return h('div', { className: 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50' },
+                h('div', { className: 'bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm' },
+                    h('h3', { className: 'text-lg font-bold mb-4 text-gray-800' }, 'Общий список'),
+                    h('p', { className: 'text-sm text-gray-600 mb-4' }, `Этот список принадлежит пользователю с ID: ${ownerId}. Вы можете им пользоваться, но не можете изменять настройки доступа.`),
+                    h('button', {
+                        onClick: onClose,
+                        className: 'w-full bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors'
+                    }, 'Закрыть')
+                )
+            );
+        }
+
+        return h('div', { className: 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50' },
+            h('div', { className: 'bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg' },
+                h('div', { className: 'flex justify-between items-center mb-4' },
+                    h('h3', { className: 'text-xl font-bold text-gray-800' }, 'Настройки доступа'),
+                    h('button', {
+                        onClick: onClose,
+                        className: 'text-gray-400 hover:text-gray-600'
+                    }, h(Icon, { name: 'x', className: 'w-6 h-6' }))
+                ),
+                
+                // Секция "Добавить пользователя"
+                h('div', { className: 'mb-4 border p-3 rounded-lg bg-gray-50' },
+                    h('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Поделиться с пользователем по Telegram ID:'),
+                    h('div', { className: 'flex gap-2' },
+                        h('input', {
+                            type: 'number',
+                            value: newUserId,
+                            onChange: (e) => setNewUserId(e.target.value),
+                            placeholder: 'Введите ID пользователя...',
+                            className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                        }),
+                        h('button', {
+                            onClick: handleAddUser,
+                            disabled: !newUserId.trim(),
+                            className: 'bg-green-600 text-white p-2 rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors'
+                        }, h(Icon, { name: 'plus', className: 'w-6 h-6' }))
+                    )
+                ),
+                
+                // Секция "Пользователи с доступом"
+                h('h4', { className: 'text-md font-semibold mb-2 text-gray-700' }, 'Текущие пользователи с доступом:'),
+                h('div', { className: 'space-y-2 max-h-40 overflow-y-auto pr-2' },
+                    sharedUsers.length === 0 
+                        ? h('p', { className: 'text-gray-500 text-sm italic' }, 'Список доступен только вам.')
+                        : sharedUsers.map(id => 
+                            h('div', { key: id, className: 'flex justify-between items-center bg-white p-3 rounded-lg border' },
+                                h('div', { className: 'flex items-center gap-2' },
+                                    h(Icon, { name: 'user', className: 'w-5 h-5 text-indigo-500' }),
+                                    h('span', { className: 'font-mono text-sm' }, `ID: ${id}`)
+                                ),
+                                h('button', {
+                                    onClick: () => handleRemoveUser(id),
+                                    className: 'text-red-500 hover:text-red-700 p-1 rounded-full'
+                                }, h(Icon, { name: 'x', className: 'w-4 h-4' }))
+                            )
+                        )
+                ),
+                
+                h('p', { className: 'text-xs text-gray-500 mt-4' }, 'Ваш ID (владелец): ' + currentUserId)
+            )
+        );
+    }
+
+    // =========================================================================
+    // ОСНОВНОЙ КОМПОНЕНТ: ShoppingList
+    // =========================================================================
     function ShoppingList() {
         const [items, setItems] = useState([]);
         const [newItem, setNewItem] = useState('');
         const [userName, setUserName] = useState('Гость');
+        const [currentUserId, setCurrentUserId] = useState(null); 
         const [loading, setLoading] = useState(true);
-        const [error, setError] = useState('');
+        const [showShareModal, setShowShareModal] = useState(false); // Состояние модального окна
 
         useEffect(() => {
             initApp();
         }, []);
 
+        // Инициализация и получение user.id
         const initApp = async () => {
             if (window.Telegram?.WebApp) {
                 const tg = window.Telegram.WebApp;
                 tg.expand();
                 tg.ready();
                 const user = tg.initDataUnsafe?.user;
-                if (user) setUserName(user.first_name || 'Пользователь');
+                if (user) {
+                    setUserName(user.first_name || 'Пользователь');
+                    setCurrentUserId(user.id); 
+                }
             }
-
-            try {
-                await fetchItems();
-
+            setLoading(false);
+        };
+        
+        // Загрузка данных при получении ID
+        useEffect(() => {
+            if (currentUserId) {
+                fetchItems();
                 // Подписка на обновления таблицы
                 supabase
                     .channel('shopping_sync')
@@ -68,31 +180,35 @@
                         fetchItems();
                     })
                     .subscribe();
-
-                setLoading(false);
-            } catch (err) {
-                console.error('Ошибка Supabase:', err);
-                setError('Ошибка подключения к Supabase');
-                setLoading(false);
             }
-        };
+        }, [currentUserId]); 
 
+        // Запрос данных, фильтруя по owner_id или shared_with
         const fetchItems = async () => {
+            if (!currentUserId) return;
+            
+            // Запрос для получения записей, где текущий пользователь либо владелец, либо в списке 'shared_with'
             const { data, error } = await supabase
                 .from('shopping_items')
                 .select('*')
+                // .or(...) - КЛИЕНТСКИЙ ФИЛЬТР, РЕКОМЕНДУЕТСЯ ПРИ ОТСУТСТВИИ RLS
+                .or(`owner_id.eq.${currentUserId},shared_with.cs.{${currentUserId}}`) 
                 .order('timestamp', { ascending: false });
+            
             if (!error) setItems(data);
         };
 
+        // ... (Остальные функции addItem, toggleItem, deleteItem, clearCompleted остаются прежними) ...
         const addItem = async () => {
-            if (!newItem.trim()) return;
+            if (!newItem.trim() || !currentUserId) return;
             try {
                 await supabase.from('shopping_items').insert([
                     {
                         text: newItem.trim(),
                         checked: false,
                         added_by: userName,
+                        owner_id: currentUserId, 
+                        shared_with: [],       
                         timestamp: Date.now()
                     }
                 ]);
@@ -111,8 +227,44 @@
         };
 
         const clearCompleted = async () => {
-            await supabase.from('shopping_items').delete().eq('checked', true);
+            await supabase.from('shopping_items').delete().eq('checked', true)
+                 .or(`owner_id.eq.${currentUserId},shared_with.cs.{${currentUserId}}`);
         };
+        // ------------------------------------------------------------------------------------------
+        
+        // Функция для обновления массива shared_with
+        const updateSharedUsers = async (newSharedUsers) => {
+             if (!currentUserId) return;
+             
+             // 1. Находим ID всех элементов, владельцем которых является текущий пользователь
+             const ownedItemIds = items.filter(item => item.owner_id === currentUserId).map(item => item.id);
+             
+             if (ownedItemIds.length === 0) {
+                 alert('У вас нет собственных элементов для разделения.');
+                 return;
+             }
+             
+             try {
+                 // 2. Обновляем поле shared_with для ВСЕХ этих элементов
+                 // В более сложном приложении нужно выбирать конкретный список. Здесь мы делимся "корзиной"
+                 await supabase.from('shopping_items')
+                     .update({ shared_with: newSharedUsers })
+                     .in('id', ownedItemIds);
+
+                 alert(`Настройки доступа успешно обновлены.`);
+             } catch (err) {
+                 console.error('Ошибка при обновлении shared_with:', err);
+                 alert('Не удалось обновить настройки доступа.');
+             }
+        };
+        
+        // Получаем данные для модального окна: ownerId и текущий shared_with (берем из первого элемента)
+        const firstOwnedItem = items.find(item => item.owner_id === currentUserId) || 
+                               items.find(item => item.owner_id); // Берем любой элемент для показа владельца
+        
+        const currentSharedUsers = firstOwnedItem ? firstOwnedItem.shared_with || [] : [];
+        const listOwnerId = firstOwnedItem ? firstOwnedItem.owner_id : currentUserId;
+
 
         const handleKeyPress = (e) => {
             if (e.key === 'Enter') addItem();
@@ -121,17 +273,31 @@
         const uncheckedCount = items.filter(i => !i.checked).length;
         const checkedCount = items.filter(i => i.checked).length;
 
-        if (loading) {
+        if (loading || !currentUserId) { 
             return h('div', { className: 'min-h-screen flex items-center justify-center text-gray-500' }, 'Загрузка...');
         }
 
         return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4' },
+            showShareModal && h(ShareSettings, { // Отображение модального окна
+                ownerId: listOwnerId,
+                sharedUsers: currentSharedUsers,
+                onUpdate: updateSharedUsers,
+                onClose: () => setShowShareModal(false),
+                currentUserId: currentUserId
+            }),
+            
             h('div', { className: 'max-w-2xl mx-auto' },
                 h('div', { className: 'bg-white rounded-2xl shadow-lg p-4 mb-4' },
                     h('div', { className: 'flex items-center justify-between mb-2' },
                         h('div', { className: 'flex items-center gap-2' },
                             h(Icon, { name: 'cart', className: 'w-6 h-6 text-indigo-600' }),
-                            h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
+                            h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок'),
+                            // Кнопка для вызова модального окна
+                            h('button', { 
+                                onClick: () => setShowShareModal(true), 
+                                title: 'Настройки доступа',
+                                className: 'p-1.5 text-gray-500 hover:text-indigo-600 transition-colors rounded-full'
+                            }, h(Icon, { name: 'share', className: 'w-5 h-5' })) 
                         ),
                         h('div', { className: 'flex items-center gap-1 text-xs text-green-600' },
                             h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
@@ -142,7 +308,8 @@
                         h('span', null, 'Осталось: ',
                             h('span', { className: 'font-semibold text-indigo-600' }, uncheckedCount)),
                         h('span', null, 'Куплено: ',
-                            h('span', { className: 'font-semibold text-green-600' }, checkedCount))
+                            h('span', { className: 'font-semibold text-green-600' }, checkedCount)),
+                        h('span', { className: 'text-xs text-gray-400' }, `Мой ID: ${currentUserId}`)
                     )
                 ),
 
@@ -179,7 +346,11 @@
                                     ),
                                     h('div', { className: 'flex-1' },
                                         h('p', { className: `${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}` }, item.text),
-                                        h('p', { className: 'text-xs text-gray-400' }, item.added_by || 'Неизвестно')
+                                        h('p', { className: 'text-xs text-gray-400' }, 
+                                            h('span', { className: 'font-medium' }, item.added_by || 'Неизвестно'),
+                                            // Отображаем, если это элемент, которым с нами поделились
+                                            item.owner_id && item.owner_id !== currentUserId ? h('span', { className: 'ml-2 text-indigo-400' }, '(Общий)') : ''
+                                        )
                                     ),
                                     h('button', {
                                         onClick: () => deleteItem(item.id),
@@ -197,7 +368,8 @@
                         )
                 ),
                 h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
-                    '✨ Изменения видны мгновенно всем пользователям')
+                    '✨ Изменения видны мгновенно всем пользователям'
+                )
             )
         );
     }
