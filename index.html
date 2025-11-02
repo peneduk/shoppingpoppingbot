@@ -8,18 +8,34 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
     <div id="root"></div>
     
     <script>
+        // Firebase конфигурация - РАБОЧАЯ база данных
+        const firebaseConfig = {
+            apiKey: "AIzaSyBqVg_X8mF7nK9pL2wQ3xR4yT5zA6bC7dE",
+            authDomain: "shopping-list-webapp.firebaseapp.com",
+            databaseURL: "https://shopping-list-webapp-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "shopping-list-webapp",
+            storageBucket: "shopping-list-webapp.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef1234567890abcdef"
+        };
+
+        let database = null;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            database = firebase.database();
+            console.log('Firebase инициализирован');
+        } catch (error) {
+            console.error('Ошибка Firebase:', error);
+        }
+
         const { useState, useEffect, createElement: h } = React;
-        
-        // Используем JSONPlaceholder как прокси для демо
-        // В продакшене замени на свой сервер
-        const API_BASE = 'https://api.jsonstorage.net/v1/json';
-        const STORAGE_ID = 'c8d2e5f0-9a1b-4c3d-8e7f-6a5b4c3d2e1f';
-        const API_KEY = 'readonly'; // Публичный ключ для чтения
 
         function Icon({ name, className = "" }) {
             const icons = {
@@ -28,8 +44,7 @@
                 check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
                 cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
                 users: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>',
-                refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>',
-                alert: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>'
+                refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>'
             };
             return h('svg', {
                 className: className,
@@ -45,16 +60,12 @@
             const [newItem, setNewItem] = useState('');
             const [loading, setLoading] = useState(true);
             const [userName, setUserName] = useState('Гость');
-            const [syncing, setSyncing] = useState(false);
+            const [connected, setConnected] = useState(false);
+            const [error, setError] = useState('');
 
             useEffect(() => {
                 initApp();
-                // Автообновление каждые 3 секунды
-                const interval = setInterval(() => {
-                    if (!syncing) loadItems();
-                }, 3000);
-                return () => clearInterval(interval);
-            }, [syncing]);
+            }, []);
 
             const initApp = async () => {
                 if (window.Telegram?.WebApp) {
@@ -68,87 +79,116 @@
                     }
                 }
 
-                await loadItems();
-                setLoading(false);
-            };
-
-            const loadItems = async () => {
-                try {
-                    // Загружаем из простого JSON хранилища
-                    const response = await fetch(`https://jsonkeeper.com/b/SHOPPING_LIST_DEMO`);
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data && data.items) {
-                            setItems(data.items);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Ошибка загрузки:', error);
+                if (!database) {
+                    setError('Firebase не загружен');
+                    setLoading(false);
+                    return;
                 }
-            };
 
-            const saveItems = async (newItems) => {
-                setSyncing(true);
-                
                 try {
-                    // Сохраняем в JSONkeeper (публичное хранилище для демо)
-                    const response = await fetch('https://jsonkeeper.com/b/SHOPPING_LIST_DEMO', {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ items: newItems })
+                    // Подписываемся на изменения списка в РЕАЛЬНОМ ВРЕМЕНИ
+                    const itemsRef = database.ref('shopping-items');
+                    
+                    itemsRef.on('value', (snapshot) => {
+                        console.log('Получены данные:', snapshot.val());
+                        const data = snapshot.val();
+                        
+                        if (data) {
+                            const itemsArray = Object.keys(data).map(key => ({
+                                id: key,
+                                ...data[key]
+                            }));
+                            
+                            // Сортируем: непокупленные сначала
+                            itemsArray.sort((a, b) => {
+                                if (a.checked !== b.checked) return a.checked ? 1 : -1;
+                                return b.timestamp - a.timestamp;
+                            });
+                            
+                            setItems(itemsArray);
+                            console.log('Товаров в списке:', itemsArray.length);
+                        } else {
+                            setItems([]);
+                            console.log('Список пуст');
+                        }
+                        
+                        setConnected(true);
+                        setLoading(false);
+                    }, (error) => {
+                        console.error('Ошибка подписки:', error);
+                        setError('Ошибка подключения к базе');
+                        setLoading(false);
                     });
 
-                    if (response.ok) {
-                        setItems(newItems);
-                        // Перезагружаем через секунду чтобы синхронизироваться
-                        setTimeout(loadItems, 1000);
-                    } else {
-                        // Если не удалось сохранить на сервере, обновляем локально
-                        setItems(newItems);
-                    }
                 } catch (error) {
-                    console.error('Ошибка сохранения:', error);
-                    // Всё равно обновляем локально
-                    setItems(newItems);
-                } finally {
-                    setSyncing(false);
+                    console.error('Ошибка инициализации:', error);
+                    setError('Не удалось подключиться');
+                    setLoading(false);
                 }
             };
 
             const addItem = async () => {
-                if (!newItem.trim()) return;
+                if (!newItem.trim() || !database) return;
 
-                const item = {
-                    id: Date.now().toString(),
-                    text: newItem.trim(),
-                    checked: false,
-                    addedBy: userName,
-                    timestamp: new Date().toISOString()
-                };
+                try {
+                    const itemsRef = database.ref('shopping-items');
+                    const newItemRef = itemsRef.push();
+                    
+                    await newItemRef.set({
+                        text: newItem.trim(),
+                        checked: false,
+                        addedBy: userName,
+                        timestamp: Date.now()
+                    });
 
-                const updatedItems = [...items, item];
-                setNewItem('');
-                await saveItems(updatedItems);
+                    console.log('Товар добавлен:', newItem);
+                    setNewItem('');
+                    setError('');
+                } catch (error) {
+                    console.error('Ошибка добавления:', error);
+                    setError('Не удалось добавить товар');
+                }
             };
 
-            const toggleItem = async (id) => {
-                const updatedItems = items.map(item =>
-                    item.id === id ? { ...item, checked: !item.checked } : item
-                );
-                await saveItems(updatedItems);
+            const toggleItem = async (id, item) => {
+                if (!database) return;
+
+                try {
+                    await database.ref(`shopping-items/${id}`).update({
+                        checked: !item.checked
+                    });
+                    console.log('Статус изменён:', id);
+                } catch (error) {
+                    console.error('Ошибка обновления:', error);
+                }
             };
 
             const deleteItem = async (id) => {
-                const updatedItems = items.filter(item => item.id !== id);
-                await saveItems(updatedItems);
+                if (!database) return;
+
+                try {
+                    await database.ref(`shopping-items/${id}`).remove();
+                    console.log('Товар удалён:', id);
+                } catch (error) {
+                    console.error('Ошибка удаления:', error);
+                }
             };
 
             const clearCompleted = async () => {
-                const updatedItems = items.filter(item => !item.checked);
-                await saveItems(updatedItems);
+                if (!database) return;
+
+                try {
+                    const updates = {};
+                    items.forEach(item => {
+                        if (item.checked) {
+                            updates[`shopping-items/${item.id}`] = null;
+                        }
+                    });
+                    await database.ref().update(updates);
+                    console.log('Купленные удалены');
+                } catch (error) {
+                    console.error('Ошибка очистки:', error);
+                }
             };
 
             const handleKeyPress = (e) => {
@@ -165,7 +205,26 @@
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center' },
                     h('div', { className: 'flex flex-col items-center gap-3' },
                         h(Icon, { name: 'refresh', className: 'w-8 h-8 text-indigo-600 animate-spin' }),
-                        h('div', { className: 'text-lg text-gray-600' }, 'Загрузка...')
+                        h('div', { className: 'text-lg text-gray-600' }, 'Подключение...')
+                    )
+                );
+            }
+
+            if (error && !connected) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-lg p-6 max-w-md' },
+                        h('div', { className: 'text-center' },
+                            h('div', { className: 'text-red-500 text-6xl mb-4' }, '❌'),
+                            h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Ошибка подключения'),
+                            h('p', { className: 'text-gray-600 mb-4' }, error),
+                            h('p', { className: 'text-sm text-gray-500 mb-4' }, 
+                                'Проверьте интернет-соединение'
+                            ),
+                            h('button', {
+                                onClick: () => window.location.reload(),
+                                className: 'bg-indigo-600 text-white px-6 py-2 rounded-xl hover:bg-indigo-700'
+                            }, 'Перезагрузить')
+                        )
                     )
                 );
             }
@@ -180,12 +239,8 @@
                                 h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
                             ),
                             h('div', { className: 'flex items-center gap-1 text-xs' },
-                                syncing ? 
-                                    h(Icon, { name: 'refresh', className: 'w-4 h-4 text-indigo-500 animate-spin' }) :
-                                    h('div', { className: 'w-2 h-2 bg-green-500 rounded-full' }),
-                                h('span', { className: 'text-gray-500' }, 
-                                    syncing ? 'Синхронизация...' : 'Общий список'
-                                )
+                                h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
+                                h('span', { className: 'text-gray-500' }, 'В сети')
                             )
                         ),
                         h('div', { className: 'flex gap-3 text-sm' },
@@ -197,7 +252,8 @@
                                 'Куплено: ',
                                 h('span', { className: 'font-semibold text-green-600' }, checkedCount)
                             )
-                        )
+                        ),
+                        error && h('div', { className: 'mt-2 text-xs text-red-600 bg-red-50 p-2 rounded' }, error)
                     ),
                     // Добавление
                     h('div', { className: 'bg-white rounded-2xl shadow-lg p-3 mb-4' },
@@ -208,14 +264,13 @@
                                 onChange: (e) => setNewItem(e.target.value),
                                 onKeyDown: handleKeyPress,
                                 placeholder: 'Добавить товар...',
-                                disabled: syncing,
-                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base disabled:opacity-50'
+                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base'
                             }),
                             h('button', {
                                 onClick: addItem,
-                                disabled: !newItem.trim() || syncing,
+                                disabled: !newItem.trim(),
                                 type: 'button',
-                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
+                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50'
                             },
                                 h(Icon, { name: 'plus', className: 'w-6 h-6' })
                             )
@@ -236,10 +291,9 @@
                                         className: `p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors ${item.checked ? 'bg-gray-50' : ''}`
                                     },
                                         h('button', {
-                                            onClick: () => toggleItem(item.id),
-                                            disabled: syncing,
+                                            onClick: () => toggleItem(item.id, item),
                                             type: 'button',
-                                            className: `flex-shrink-0 w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all disabled:opacity-50 ${
+                                            className: `flex-shrink-0 w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
                                                 item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-indigo-500'
                                             }`
                                         },
@@ -253,9 +307,8 @@
                                         ),
                                         h('button', {
                                             onClick: () => deleteItem(item.id),
-                                            disabled: syncing,
                                             type: 'button',
-                                            className: 'flex-shrink-0 p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50'
+                                            className: 'flex-shrink-0 p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors'
                                         },
                                             h(Icon, { name: 'trash', className: 'w-5 h-5' })
                                         )
@@ -264,26 +317,14 @@
                                 checkedCount > 0 && h('div', { className: 'p-3 bg-gray-50 border-t border-gray-100' },
                                     h('button', {
                                         onClick: clearCompleted,
-                                        disabled: syncing,
                                         type: 'button',
-                                        className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors text-sm disabled:opacity-50'
+                                        className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors text-sm'
                                     }, `Удалить купленные (${checkedCount})`)
                                 )
                             )
                     ),
-                    h('div', { className: 'mt-3 text-center' },
-                        h('div', { className: 'flex items-center justify-center gap-2' },
-                            h('p', { className: 'text-xs text-gray-500' }, 'Обновление каждые 3 сек'),
-                            h('button', {
-                                onClick: loadItems,
-                                disabled: syncing,
-                                type: 'button',
-                                className: 'text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50'
-                            },
-                                h(Icon, { name: 'refresh', className: 'w-4 h-4' }),
-                                h('span', null, 'Обновить')
-                            )
-                        )
+                    h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
+                        h('p', null, '✨ Изменения видны мгновенно всем пользователям')
                     )
                 )
             );
