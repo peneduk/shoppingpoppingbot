@@ -8,330 +8,202 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
 <body>
-    <div id="root"></div>
-    
-    <script>
-        // Firebase конфигурация - РАБОЧАЯ база данных
-        const firebaseConfig = {
-            apiKey: "AIzaSyBqVg_X8mF7nK9pL2wQ3xR4yT5zA6bC7dE",
-            authDomain: "shopping-list-webapp.firebaseapp.com",
-            databaseURL: "https://shopping-list-webapp-default-rtdb.europe-west1.firebasedatabase.app",
-            projectId: "shopping-list-webapp",
-            storageBucket: "shopping-list-webapp.appspot.com",
-            messagingSenderId: "123456789012",
-            appId: "1:123456789012:web:abcdef1234567890abcdef"
+<div id="root"></div>
+
+<script>
+    // === Настройки Supabase ===
+    const SUPABASE_URL = "https://YOUR_PROJECT_ID.supabase.co"; // 🔹 вставь свой URL
+    const SUPABASE_KEY = "YOUR_ANON_KEY"; // 🔹 вставь свой public key
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const { useState, useEffect, createElement: h } = React;
+
+    function Icon({ name, className = "" }) {
+        const icons = {
+            plus: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>',
+            trash: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
+            check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
+            cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
+            refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>'
+        };
+        return h('svg', {
+            className: className,
+            fill: 'none',
+            stroke: 'currentColor',
+            viewBox: '0 0 24 24',
+            dangerouslySetInnerHTML: { __html: icons[name] || '' }
+        });
+    }
+
+    function ShoppingList() {
+        const [items, setItems] = useState([]);
+        const [newItem, setNewItem] = useState('');
+        const [userName, setUserName] = useState('Гость');
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState('');
+
+        useEffect(() => {
+            initApp();
+        }, []);
+
+        const initApp = async () => {
+            if (window.Telegram?.WebApp) {
+                const tg = window.Telegram.WebApp;
+                tg.expand();
+                tg.ready();
+                const user = tg.initDataUnsafe?.user;
+                if (user) setUserName(user.first_name || 'Пользователь');
+            }
+
+            try {
+                await fetchItems();
+
+                // Подписка на обновления таблицы
+                supabase
+                    .channel('shopping_sync')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopping_items' }, () => {
+                        fetchItems();
+                    })
+                    .subscribe();
+
+                setLoading(false);
+            } catch (err) {
+                console.error('Ошибка Supabase:', err);
+                setError('Ошибка подключения к Supabase');
+                setLoading(false);
+            }
         };
 
-        let database = null;
-        try {
-            firebase.initializeApp(firebaseConfig);
-            database = firebase.database();
-            console.log('Firebase инициализирован');
-        } catch (error) {
-            console.error('Ошибка Firebase:', error);
-        }
+        const fetchItems = async () => {
+            const { data, error } = await supabase
+                .from('shopping_items')
+                .select('*')
+                .order('timestamp', { ascending: false });
+            if (!error) setItems(data);
+        };
 
-        const { useState, useEffect, createElement: h } = React;
-
-        function Icon({ name, className = "" }) {
-            const icons = {
-                plus: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>',
-                trash: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
-                check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
-                cart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>',
-                users: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>',
-                refresh: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>'
-            };
-            return h('svg', {
-                className: className,
-                fill: 'none',
-                stroke: 'currentColor',
-                viewBox: '0 0 24 24',
-                dangerouslySetInnerHTML: { __html: icons[name] || '' }
-            });
-        }
-
-        function ShoppingList() {
-            const [items, setItems] = useState([]);
-            const [newItem, setNewItem] = useState('');
-            const [loading, setLoading] = useState(true);
-            const [userName, setUserName] = useState('Гость');
-            const [connected, setConnected] = useState(false);
-            const [error, setError] = useState('');
-
-            useEffect(() => {
-                initApp();
-            }, []);
-
-            const initApp = async () => {
-                if (window.Telegram?.WebApp) {
-                    const tg = window.Telegram.WebApp;
-                    tg.expand();
-                    tg.ready();
-                    
-                    const user = tg.initDataUnsafe?.user;
-                    if (user) {
-                        setUserName(user.first_name || 'Пользователь');
-                    }
-                }
-
-                if (!database) {
-                    setError('Firebase не загружен');
-                    setLoading(false);
-                    return;
-                }
-
-                try {
-                    // Подписываемся на изменения списка в РЕАЛЬНОМ ВРЕМЕНИ
-                    const itemsRef = database.ref('shopping-items');
-                    
-                    itemsRef.on('value', (snapshot) => {
-                        console.log('Получены данные:', snapshot.val());
-                        const data = snapshot.val();
-                        
-                        if (data) {
-                            const itemsArray = Object.keys(data).map(key => ({
-                                id: key,
-                                ...data[key]
-                            }));
-                            
-                            // Сортируем: непокупленные сначала
-                            itemsArray.sort((a, b) => {
-                                if (a.checked !== b.checked) return a.checked ? 1 : -1;
-                                return b.timestamp - a.timestamp;
-                            });
-                            
-                            setItems(itemsArray);
-                            console.log('Товаров в списке:', itemsArray.length);
-                        } else {
-                            setItems([]);
-                            console.log('Список пуст');
-                        }
-                        
-                        setConnected(true);
-                        setLoading(false);
-                    }, (error) => {
-                        console.error('Ошибка подписки:', error);
-                        setError('Ошибка подключения к базе');
-                        setLoading(false);
-                    });
-
-                } catch (error) {
-                    console.error('Ошибка инициализации:', error);
-                    setError('Не удалось подключиться');
-                    setLoading(false);
-                }
-            };
-
-            const addItem = async () => {
-                if (!newItem.trim() || !database) return;
-
-                try {
-                    const itemsRef = database.ref('shopping-items');
-                    const newItemRef = itemsRef.push();
-                    
-                    await newItemRef.set({
+        const addItem = async () => {
+            if (!newItem.trim()) return;
+            try {
+                await supabase.from('shopping_items').insert([
+                    {
                         text: newItem.trim(),
                         checked: false,
-                        addedBy: userName,
+                        added_by: userName,
                         timestamp: Date.now()
-                    });
-
-                    console.log('Товар добавлен:', newItem);
-                    setNewItem('');
-                    setError('');
-                } catch (error) {
-                    console.error('Ошибка добавления:', error);
-                    setError('Не удалось добавить товар');
-                }
-            };
-
-            const toggleItem = async (id, item) => {
-                if (!database) return;
-
-                try {
-                    await database.ref(`shopping-items/${id}`).update({
-                        checked: !item.checked
-                    });
-                    console.log('Статус изменён:', id);
-                } catch (error) {
-                    console.error('Ошибка обновления:', error);
-                }
-            };
-
-            const deleteItem = async (id) => {
-                if (!database) return;
-
-                try {
-                    await database.ref(`shopping-items/${id}`).remove();
-                    console.log('Товар удалён:', id);
-                } catch (error) {
-                    console.error('Ошибка удаления:', error);
-                }
-            };
-
-            const clearCompleted = async () => {
-                if (!database) return;
-
-                try {
-                    const updates = {};
-                    items.forEach(item => {
-                        if (item.checked) {
-                            updates[`shopping-items/${item.id}`] = null;
-                        }
-                    });
-                    await database.ref().update(updates);
-                    console.log('Купленные удалены');
-                } catch (error) {
-                    console.error('Ошибка очистки:', error);
-                }
-            };
-
-            const handleKeyPress = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addItem();
-                }
-            };
-
-            const uncheckedCount = items.filter(item => !item.checked).length;
-            const checkedCount = items.filter(item => item.checked).length;
-
-            if (loading) {
-                return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center' },
-                    h('div', { className: 'flex flex-col items-center gap-3' },
-                        h(Icon, { name: 'refresh', className: 'w-8 h-8 text-indigo-600 animate-spin' }),
-                        h('div', { className: 'text-lg text-gray-600' }, 'Подключение...')
-                    )
-                );
+                    }
+                ]);
+                setNewItem('');
+            } catch (err) {
+                console.error('Ошибка добавления:', err);
             }
+        };
 
-            if (error && !connected) {
-                return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4' },
-                    h('div', { className: 'bg-white rounded-2xl shadow-lg p-6 max-w-md' },
-                        h('div', { className: 'text-center' },
-                            h('div', { className: 'text-red-500 text-6xl mb-4' }, '❌'),
-                            h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Ошибка подключения'),
-                            h('p', { className: 'text-gray-600 mb-4' }, error),
-                            h('p', { className: 'text-sm text-gray-500 mb-4' }, 
-                                'Проверьте интернет-соединение'
-                            ),
-                            h('button', {
-                                onClick: () => window.location.reload(),
-                                className: 'bg-indigo-600 text-white px-6 py-2 rounded-xl hover:bg-indigo-700'
-                            }, 'Перезагрузить')
-                        )
-                    )
-                );
-            }
+        const toggleItem = async (id, checked) => {
+            await supabase.from('shopping_items').update({ checked: !checked }).eq('id', id);
+        };
 
-            return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4' },
-                h('div', { className: 'max-w-2xl mx-auto' },
-                    // Заголовок
-                    h('div', { className: 'bg-white rounded-2xl shadow-lg p-4 mb-4' },
-                        h('div', { className: 'flex items-center justify-between mb-2' },
-                            h('div', { className: 'flex items-center gap-2' },
-                                h(Icon, { name: 'cart', className: 'w-6 h-6 text-indigo-600' }),
-                                h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
-                            ),
-                            h('div', { className: 'flex items-center gap-1 text-xs' },
-                                h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
-                                h('span', { className: 'text-gray-500' }, 'В сети')
-                            )
-                        ),
-                        h('div', { className: 'flex gap-3 text-sm' },
-                            h('span', { className: 'text-gray-600' },
-                                'Осталось: ',
-                                h('span', { className: 'font-semibold text-indigo-600' }, uncheckedCount)
-                            ),
-                            h('span', { className: 'text-gray-600' },
-                                'Куплено: ',
-                                h('span', { className: 'font-semibold text-green-600' }, checkedCount)
-                            )
-                        ),
-                        error && h('div', { className: 'mt-2 text-xs text-red-600 bg-red-50 p-2 rounded' }, error)
-                    ),
-                    // Добавление
-                    h('div', { className: 'bg-white rounded-2xl shadow-lg p-3 mb-4' },
-                        h('div', { className: 'flex gap-2' },
-                            h('input', {
-                                type: 'text',
-                                value: newItem,
-                                onChange: (e) => setNewItem(e.target.value),
-                                onKeyDown: handleKeyPress,
-                                placeholder: 'Добавить товар...',
-                                className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-base'
-                            }),
-                            h('button', {
-                                onClick: addItem,
-                                disabled: !newItem.trim(),
-                                type: 'button',
-                                className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-50'
-                            },
-                                h(Icon, { name: 'plus', className: 'w-6 h-6' })
-                            )
-                        )
-                    ),
-                    // Список
-                    h('div', { className: 'bg-white rounded-2xl shadow-lg overflow-hidden' },
-                        items.length === 0 ? 
-                            h('div', { className: 'p-8 text-center text-gray-500' },
-                                h(Icon, { name: 'cart', className: 'w-12 h-12 mx-auto mb-3 text-gray-300' }),
-                                h('p', { className: 'text-base font-medium' }, 'Список пуст'),
-                                h('p', { className: 'text-sm mt-1' }, 'Добавьте первый товар')
-                            ) :
-                            h('div', { className: 'divide-y divide-gray-100' },
-                                ...items.map(item =>
-                                    h('div', {
-                                        key: item.id,
-                                        className: `p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors ${item.checked ? 'bg-gray-50' : ''}`
-                                    },
-                                        h('button', {
-                                            onClick: () => toggleItem(item.id, item),
-                                            type: 'button',
-                                            className: `flex-shrink-0 w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
-                                                item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-indigo-500'
-                                            }`
-                                        },
-                                            item.checked && h(Icon, { name: 'check', className: 'w-3 h-3 text-white' })
-                                        ),
-                                        h('div', { className: 'flex-1 min-w-0' },
-                                            h('p', {
-                                                className: `text-base ${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}`
-                                            }, item.text),
-                                            h('p', { className: 'text-xs text-gray-400 mt-0.5' }, item.addedBy || 'Неизвестно')
-                                        ),
-                                        h('button', {
-                                            onClick: () => deleteItem(item.id),
-                                            type: 'button',
-                                            className: 'flex-shrink-0 p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors'
-                                        },
-                                            h(Icon, { name: 'trash', className: 'w-5 h-5' })
-                                        )
-                                    )
-                                ),
-                                checkedCount > 0 && h('div', { className: 'p-3 bg-gray-50 border-t border-gray-100' },
-                                    h('button', {
-                                        onClick: clearCompleted,
-                                        type: 'button',
-                                        className: 'w-full py-2 text-red-600 hover:text-red-700 font-medium transition-colors text-sm'
-                                    }, `Удалить купленные (${checkedCount})`)
-                                )
-                            )
-                    ),
-                    h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
-                        h('p', null, '✨ Изменения видны мгновенно всем пользователям')
-                    )
-                )
-            );
+        const deleteItem = async (id) => {
+            await supabase.from('shopping_items').delete().eq('id', id);
+        };
+
+        const clearCompleted = async () => {
+            await supabase.from('shopping_items').delete().eq('checked', true);
+        };
+
+        const handleKeyPress = (e) => {
+            if (e.key === 'Enter') addItem();
+        };
+
+        const uncheckedCount = items.filter(i => !i.checked).length;
+        const checkedCount = items.filter(i => i.checked).length;
+
+        if (loading) {
+            return h('div', { className: 'min-h-screen flex items-center justify-center text-gray-500' }, 'Загрузка...');
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(h(ShoppingList));
-    </script>
+        return h('div', { className: 'min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4' },
+            h('div', { className: 'max-w-2xl mx-auto' },
+                h('div', { className: 'bg-white rounded-2xl shadow-lg p-4 mb-4' },
+                    h('div', { className: 'flex items-center justify-between mb-2' },
+                        h('div', { className: 'flex items-center gap-2' },
+                            h(Icon, { name: 'cart', className: 'w-6 h-6 text-indigo-600' }),
+                            h('h1', { className: 'text-xl font-bold text-gray-800' }, 'Список покупок')
+                        ),
+                        h('div', { className: 'flex items-center gap-1 text-xs text-green-600' },
+                            h('div', { className: 'w-2 h-2 bg-green-500 rounded-full animate-pulse' }),
+                            'в сети'
+                        )
+                    ),
+                    h('div', { className: 'flex gap-3 text-sm' },
+                        h('span', null, 'Осталось: ',
+                            h('span', { className: 'font-semibold text-indigo-600' }, uncheckedCount)),
+                        h('span', null, 'Куплено: ',
+                            h('span', { className: 'font-semibold text-green-600' }, checkedCount))
+                    )
+                ),
+
+                h('div', { className: 'bg-white rounded-2xl shadow-lg p-3 mb-4 flex gap-2' },
+                    h('input', {
+                        type: 'text',
+                        value: newItem,
+                        onChange: (e) => setNewItem(e.target.value),
+                        onKeyDown: handleKeyPress,
+                        placeholder: 'Добавить товар...',
+                        className: 'flex-1 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                    }),
+                    h('button', {
+                        onClick: addItem,
+                        disabled: !newItem.trim(),
+                        className: 'bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 disabled:opacity-50'
+                    }, h(Icon, { name: 'plus', className: 'w-6 h-6' }))
+                ),
+
+                h('div', { className: 'bg-white rounded-2xl shadow-lg overflow-hidden' },
+                    items.length === 0
+                        ? h('div', { className: 'p-8 text-center text-gray-500' }, 'Список пуст')
+                        : h('div', { className: 'divide-y divide-gray-100' },
+                            ...items.map(item =>
+                                h('div', {
+                                    key: item.id,
+                                    className: `p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors ${item.checked ? 'bg-gray-50' : ''}`
+                                },
+                                    h('button', {
+                                        onClick: () => toggleItem(item.id, item.checked),
+                                        className: `w-5 h-5 border-2 rounded-lg flex items-center justify-center ${item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`
+                                    },
+                                        item.checked && h(Icon, { name: 'check', className: 'w-3 h-3 text-white' })
+                                    ),
+                                    h('div', { className: 'flex-1' },
+                                        h('p', { className: `${item.checked ? 'line-through text-gray-400' : 'text-gray-800'}` }, item.text),
+                                        h('p', { className: 'text-xs text-gray-400' }, item.added_by || 'Неизвестно')
+                                    ),
+                                    h('button', {
+                                        onClick: () => deleteItem(item.id),
+                                        className: 'p-1.5 text-red-500 hover:bg-red-50 rounded-lg'
+                                    }, h(Icon, { name: 'trash', className: 'w-5 h-5' }))
+                                )
+                            ),
+                            checkedCount > 0 &&
+                            h('div', { className: 'p-3 bg-gray-50 border-t border-gray-100' },
+                                h('button', {
+                                    onClick: clearCompleted,
+                                    className: 'w-full text-sm text-red-600 hover:text-red-700 font-medium'
+                                }, `Удалить купленные (${checkedCount})`)
+                            )
+                        )
+                ),
+                h('div', { className: 'mt-3 text-center text-xs text-gray-500' },
+                    '✨ Изменения видны мгновенно всем пользователям')
+            )
+        );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(h(ShoppingList));
+</script>
 </body>
 </html>
